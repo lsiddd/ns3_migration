@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
- * Authors: Manuel Requena <manuel.requena@cttc.es>
+ * Authors: Lucas Pacheco <lucas.pacheco@itec.ufpa.br>
  */
 
 #include "ns3/core-module.h"
@@ -167,7 +167,7 @@ void WriteUntilBufferFull(Ptr < Socket > localSocket, uint32_t txSpace) {
 
 
 static void CwndTracer(uint32_t oldval, uint32_t newval) {
-    std::cout << "Moving cwnd from " << oldval << " to " << newval << "\n";
+    NS_LOG_INFO("Moving cwnd from " << oldval << " to " << newval);
 }
 
 int
