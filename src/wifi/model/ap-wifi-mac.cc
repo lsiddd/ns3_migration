@@ -34,9 +34,6 @@
 #include "msdu-aggregator.h"
 #include "amsdu-subframe-header.h"
 #include "wifi-phy.h"
-#include "wifi-net-device.h"
-#include "ht-configuration.h"
-#include "he-configuration.h"
 
 namespace ns3 {
 
@@ -199,11 +196,7 @@ ApWifiMac::SetBeaconInterval (Time interval)
   NS_LOG_FUNCTION (this << interval);
   if ((interval.GetMicroSeconds () % 1024) != 0)
     {
-      NS_FATAL_ERROR ("beacon interval should be multiple of 1024us (802.11 time unit), see IEEE Std. 802.11-2012");
-    }
-  if (interval.GetMicroSeconds () > (1024 * 65535))
-    {
-      NS_FATAL_ERROR ("beacon interval should be smaller then or equal to 65535 * 1024us (802.11 time unit)");
+      NS_LOG_WARN ("beacon interval should be multiple of 1024us (802.11 time unit), see IEEE Std. 802.11-2012");
     }
   m_low->SetBeaconInterval (interval);
 }
@@ -596,7 +589,7 @@ ApWifiMac::GetHtOperation (void) const
             }
           uint8_t nss = (mcs.GetMcsValue () / 8) + 1;
           NS_ASSERT (nss > 0 && nss < 5);
-          uint64_t dataRate = mcs.GetDataRate (m_phy->GetChannelWidth (), GetHtConfiguration ()->GetShortGuardIntervalSupported () ? 400 : 800, nss);
+          uint64_t dataRate = mcs.GetDataRate (m_phy->GetChannelWidth (), m_phy->GetShortGuardInterval () ? 400 : 800, nss);
           if (dataRate > maxSupportedRate)
             {
               maxSupportedRate = dataRate;
@@ -619,7 +612,7 @@ ApWifiMac::GetHtOperation (void) const
                     }
                   uint8_t nss = (mcs.GetMcsValue () / 8) + 1;
                   NS_ASSERT (nss > 0 && nss < 5);
-                  uint64_t dataRate = mcs.GetDataRate (m_stationManager->GetChannelWidthSupported (i->second), m_stationManager->GetShortGuardIntervalSupported (i->second) ? 400 : 800, nss);
+                  uint64_t dataRate = mcs.GetDataRate (m_stationManager->GetChannelWidthSupported (i->second), m_stationManager->GetShortGuardInterval (i->second) ? 400 : 800, nss);
                   if (dataRate > maxSupportedRateByHtSta)
                     {
                       maxSupportedRateByHtSta = dataRate;
@@ -678,20 +671,17 @@ ApWifiMac::GetVhtOperation (void) const
         {
           operation.SetChannelWidth (0);
         }
-      uint8_t maxSpatialStream = m_phy->GetMaxSupportedRxSpatialStreams ();
-      for (std::map<uint16_t, Mac48Address>::const_iterator i = m_staList.begin (); i != m_staList.end (); i++)
+      for (uint8_t nss = 1; nss <= 8; nss++)
         {
-          if (m_stationManager->GetVhtSupported (i->second))
+          uint8_t maxMcs;
+          if (nss <= m_phy->GetMaxSupportedRxSpatialStreams ())
             {
-              if (m_stationManager->GetNumberOfSupportedStreams (i->second) < maxSpatialStream)
-                {
-                  maxSpatialStream = m_stationManager->GetNumberOfSupportedStreams (i->second);
-                }
+              maxMcs = 9; //TBD: hardcode to 9 for now since we assume all MCS values are supported
             }
-        }
-      for (uint8_t nss = 1; nss <= maxSpatialStream; nss++)
-        {
-          uint8_t maxMcs = 9; //TBD: hardcode to 9 for now since we assume all MCS values are supported
+          else
+            {
+              maxMcs = 0;
+            }
           operation.SetMaxVhtMcsPerNss (nss, maxMcs);
         }
     }
@@ -706,24 +696,10 @@ ApWifiMac::GetHeOperation (void) const
   if (GetHeSupported ())
     {
       operation.SetHeSupported (1);
-      uint8_t maxSpatialStream = m_phy->GetMaxSupportedRxSpatialStreams ();
-      for (std::map<uint16_t, Mac48Address>::const_iterator i = m_staList.begin (); i != m_staList.end (); i++)
-        {
-          if (m_stationManager->GetHeSupported (i->second))
-            {
-              if (m_stationManager->GetNumberOfSupportedStreams (i->second) < maxSpatialStream)
-                {
-                  maxSpatialStream = m_stationManager->GetNumberOfSupportedStreams (i->second);
-                }
-            }
-        }
-      for (uint8_t nss = 1; nss <= maxSpatialStream; nss++)
+      for (uint8_t nss = 1; nss <= m_phy->GetMaxSupportedRxSpatialStreams (); nss++)
         {
           operation.SetMaxHeMcsPerNss (nss, 11); //TBD: hardcode to 11 for now since we assume all MCS values are supported
         }
-      UintegerValue bssColor;
-      GetHeConfiguration ()->GetAttribute ("BssColor", bssColor);
-      operation.SetBssColor (bssColor.Get ());
     }
   return operation;
 }
@@ -1096,14 +1072,8 @@ ApWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
       if (hdr->IsProbeReq ())
         {
           NS_ASSERT (hdr->GetAddr1 ().IsBroadcast ());
-          MgtProbeRequestHeader probeRequestHeader;
-          packet->RemoveHeader (probeRequestHeader);
-          Ssid ssid = probeRequestHeader.GetSsid ();
-          if (ssid == GetSsid () || ssid.IsBroadcast ())
-            {
-              NS_LOG_DEBUG ("Probe request received from " << from << ": send probe response");
-              SendProbeResp (from);
-            }
+          NS_LOG_DEBUG ("Probe request received from " << from << ": send probe response");
+          SendProbeResp (from);
           return;
         }
       else if (hdr->GetAddr1 () == GetAddress ())
@@ -1600,7 +1570,7 @@ ApWifiMac::GetRifsMode (void) const
           rifsMode = true;
         }
     }
-  if (GetHtSupported () && GetHtConfiguration ()->GetRifsSupported () && rifsMode)
+  if (GetRifsSupported () && rifsMode)
     {
       m_stationManager->SetRifsPermitted (true);
     }

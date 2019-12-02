@@ -245,7 +245,7 @@ Ipv4L3Protocol::DeleteRawSocket (Ptr<Socket> socket)
   return;
 }
 /*
- * This method is called by AggregateObject and completes the aggregation
+ * This method is called by AddAgregate and completes the aggregation
  * by setting the node in the ipv4 stack
  */
 void
@@ -388,6 +388,7 @@ Ipv4L3Protocol::AddInterface (Ptr<NetDevice> device)
   interface->SetDevice (device);
   interface->SetTrafficControl (tc);
   interface->SetForwarding (m_ipForward);
+  tc->SetupDevice (device);
   return AddIpv4Interface (interface);
 }
 
@@ -1029,8 +1030,9 @@ Ipv4L3Protocol::IpForward (Ptr<Ipv4Route> rtentry, Ptr<const Packet> p, const Ip
   ipHeader.SetTtl (ipHeader.GetTtl () - 1);
   if (ipHeader.GetTtl () == 0)
     {
-      // Do not reply to multicast/broadcast IP address
-      if (ipHeader.GetDestination ().IsBroadcast () == false &&
+      // Do not reply to ICMP or to multicast/broadcast IP address 
+      if (ipHeader.GetProtocol () != Icmpv4L4Protocol::PROT_NUMBER && 
+          ipHeader.GetDestination ().IsBroadcast () == false &&
           ipHeader.GetDestination ().IsMulticast () == false)
         {
           Ptr<Icmpv4L4Protocol> icmp = GetIcmp ();

@@ -36,22 +36,17 @@ class WifiMode;
 class Packet;
 
 /**
- * Callback if packet successfully received (i.e. if aggregate,
- * it means that at least one MPDU of the A-MPDU was received,
- * considering that the per-MPDU reception status is also provided).
- *
  * arg1: packet received successfully
- * arg2: SNR of packet
+ * arg2: snr of packet
  * arg3: TXVECTOR of packet
- * arg4: vector of per-MPDU status of reception.
+ * arg4: type of preamble used for packet.
  */
-typedef Callback<void, Ptr<Packet>, double, WifiTxVector, std::vector<bool>> RxOkCallback;
+typedef Callback<void, Ptr<Packet>, double, WifiTxVector> RxOkCallback;
 /**
- * Callback if packet unsuccessfully received
- *
  * arg1: packet received unsuccessfully
+ * arg2: snr of packet
  */
-typedef Callback<void, Ptr<Packet>> RxErrorCallback;
+typedef Callback<void, Ptr<Packet>, double> RxErrorCallback;
 
 /**
  * \ingroup wifi
@@ -181,9 +176,8 @@ public:
    * \param packet the successfully received packet
    * \param snr the SNR of the received packet
    * \param txVector TXVECTOR of the packet
-   * \param statusPerMpdu reception status per MPDU
    */
-  void SwitchFromRxEndOk (Ptr<Packet> packet, double snr, WifiTxVector txVector, std::vector<bool> statusPerMpdu);
+  void SwitchFromRxEndOk (Ptr<Packet> packet, double snr, WifiTxVector txVector);
   /**
    * Switch from RX after the reception failed.
    *
@@ -209,10 +203,8 @@ public:
   void SwitchFromSleep (Time duration);
   /**
    * Abort current reception
-   *
-   * \param failure flag to indicate whether RX abortion is due to a failure
    */
-  void SwitchFromRxAbort (bool failure);
+  void SwitchFromRxAbort (void);
   /**
    * Switch to off mode.
    */
@@ -339,6 +331,7 @@ private:
    */
   TracedCallback<Time, Time, WifiPhyState> m_stateLogger;
 
+  bool m_rxing; ///< receiving
   bool m_sleeping; ///< sleeping
   bool m_isOff; ///< switched off
   Time m_endTx; ///< end transmit

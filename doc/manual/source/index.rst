@@ -3,7 +3,7 @@
 ns-3 Manual
 ===========
 
-This is the *ns-3 Manual*. Primary documentation for the ns-3 project is
+This is the *ns-3 Manual*. Primary documentation for the ns-3 project is 
 available in five forms:
 
 * `ns-3 Doxygen <http://www.nsnam.org/doxygen/index.html>`_: Documentation of the public APIs of the simulator
@@ -17,7 +17,6 @@ This document is written in `reStructuredText <http://docutils.sourceforge.net/r
    :maxdepth: 2
 
    organization
-   working-with-git
    random-variables
    hash-functions
    events
@@ -35,3 +34,4 @@ This document is written in `reStructuredText <http://docutils.sourceforge.net/r
    python
    tests
    support
+

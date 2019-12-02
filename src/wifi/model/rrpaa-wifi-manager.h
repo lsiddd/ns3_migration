@@ -82,6 +82,9 @@ public:
   // Inherited from WifiRemoteStationManager
   virtual void SetupPhy (const Ptr<WifiPhy> phy);
   virtual void SetupMac (const Ptr<WifiMac> mac);
+  virtual void SetHtSupported (bool enable);
+  virtual void SetVhtSupported (bool enable);
+  virtual void SetHeSupported (bool enable);
 
   /**
    * Assign a fixed random variable stream number to the random variables
@@ -95,8 +98,7 @@ public:
   int64_t AssignStreams (int64_t stream);
 
 private:
-  // Overridden from base class.
-  void DoInitialize (void);
+  //overridden from base class
   virtual WifiRemoteStation * DoCreateStation (void) const;
   virtual void DoReportRxOk (WifiRemoteStation *station,
                              double rxSnr, WifiMode txMode);

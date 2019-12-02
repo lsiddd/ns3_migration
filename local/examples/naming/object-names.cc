@@ -1,0 +1,1 @@
+/home/sid/hove/examples/naming/object-names.cc

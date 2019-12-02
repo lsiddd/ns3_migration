@@ -193,27 +193,6 @@ LteUeRrcProtocolReal::DoSendMeasurementReport (LteRrcSap::MeasurementReport msg)
   m_setupParameters.srb1SapProvider->TransmitPdcpSdu (transmitPdcpSduParameters);
 }
 
-void
-LteUeRrcProtocolReal::DoSendIdealUeContextRemoveRequest (uint16_t rnti)
-{
-  NS_LOG_FUNCTION(this<<rnti);
-  uint16_t cellId = m_rrc->GetCellId ();
-  // re-initialize the RNTI and get the EnbLteRrcSapProvider for the
-  // eNB we are currently attached to or attempting random access to
-  // a target eNB
-  m_rnti = m_rrc->GetRnti ();
-
-  NS_LOG_DEBUG ("RNTI " << rnti
-                << " sending UE context remove request to cell id " << cellId);
-  NS_ABORT_MSG_IF (m_rnti != rnti, "RNTI mismatch");
-
-  SetEnbRrcSapProvider (); //the provider has to be reset since the cell might
-                          // have changed due to handover
-  //ideally informing eNB
-  Simulator::Schedule (RRC_REAL_MSG_DELAY, &LteEnbRrcSapProvider::RecvIdealUeContextRemoveRequest,
-                       m_enbRrcSapProvider, rnti);
-}
-
 void 
 LteUeRrcProtocolReal::DoSendRrcConnectionReestablishmentRequest (LteRrcSap::RrcConnectionReestablishmentRequest msg)
 {
@@ -254,11 +233,7 @@ LteUeRrcProtocolReal::DoSendRrcConnectionReestablishmentComplete (LteRrcSap::Rrc
 void 
 LteUeRrcProtocolReal::SetEnbRrcSapProvider ()
 {
-  NS_LOG_FUNCTION (this);
-
   uint16_t cellId = m_rrc->GetCellId ();
-
-  NS_LOG_DEBUG ("RNTI " << m_rnti << " connected to cell " << cellId);
 
   // walk list of all nodes to get the peer eNB
   Ptr<LteEnbNetDevice> enbDev;
@@ -314,7 +289,7 @@ LteUeRrcProtocolReal::DoReceivePdcpPdu (Ptr<Packet> p)
   LteRrcSap::RrcConnectionSetup rrcConnectionSetupMsg;
   LteRrcSap::RrcConnectionReject rrcConnectionRejectMsg;
 
-  // Deserialize packet and call member recv function with appropriate structure
+  // Deserialize packet and call member recv function with appropiate structure
   switch ( rrcDlCcchMessage.GetMessageType () )
     {
     case 0:
@@ -359,7 +334,7 @@ LteUeRrcProtocolReal::DoReceivePdcpSdu (LtePdcpSapUser::ReceivePdcpSduParameters
   LteRrcSap::RrcConnectionReconfiguration rrcConnectionReconfigurationMsg;
   LteRrcSap::RrcConnectionRelease rrcConnectionReleaseMsg;
 
-  // Deserialize packet and call member recv function with appropriate structure
+  // Deserialize packet and call member recv function with appropiate structure
   switch ( rrcDlDcchMessage.GetMessageType () )
     {
     case 4:
@@ -448,8 +423,7 @@ LteEnbRrcProtocolReal::SetUeRrcSapProvider (uint16_t rnti, LteUeRrcSapProvider* 
 {
   std::map<uint16_t, LteUeRrcSapProvider*>::iterator it;
   it = m_enbRrcSapProviderMap.find (rnti);
-  NS_ASSERT_MSG (it != m_enbRrcSapProviderMap.end (), "Cell id " << m_cellId
-                                         << " could not find RNTI = " << rnti);
+  NS_ASSERT_MSG (it != m_enbRrcSapProviderMap.end (), "could not find RNTI = " << rnti);
   it->second = p;
 }
 
@@ -679,7 +653,7 @@ LteEnbRrcProtocolReal::DoReceivePdcpPdu (uint16_t rnti, Ptr<Packet> p)
   RrcConnectionReestablishmentRequestHeader rrcConnectionReestablishmentRequestHeader;
   RrcConnectionRequestHeader rrcConnectionRequestHeader;
 
-  // Deserialize packet and call member recv function with appropriate structure
+  // Deserialize packet and call member recv function with appropiate structure
   switch ( rrcUlCcchMessage.GetMessageType () )
     {
     case 0:
@@ -716,7 +690,7 @@ LteEnbRrcProtocolReal::DoReceivePdcpSdu (LtePdcpSapUser::ReceivePdcpSduParameter
   LteRrcSap::RrcConnectionReestablishmentComplete rrcConnectionReestablishmentCompleteMsg;
   LteRrcSap::RrcConnectionSetupCompleted rrcConnectionSetupCompletedMsg;
 
-  // Deserialize packet and call member recv function with appropriate structure
+  // Deserialize packet and call member recv function with appropiate structure
   switch ( rrcUlDcchMessage.GetMessageType () )
     {
     case 1:

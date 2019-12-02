@@ -236,7 +236,7 @@ int main (int argc, char *argv[])
   enbDevs = lteHelper->InstallEnbDevice (enbNodes);
   randomUeDevs = lteHelper->InstallUeDevice (randomUeNodes);
 
-  // Add X2 interface
+  // Add X2 inteface
   lteHelper->AddX2Interface (enbNodes);
 
 

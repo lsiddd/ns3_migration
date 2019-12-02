@@ -22,6 +22,7 @@
 #ifndef ORBIS_TOPOLOGY_READER_H
 #define ORBIS_TOPOLOGY_READER_H
 
+#include "ns3/nstime.h"
 #include "topology-reader.h"
 
 namespace ns3 {

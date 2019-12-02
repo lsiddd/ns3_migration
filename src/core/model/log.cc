@@ -46,15 +46,15 @@ namespace ns3 {
 
 /**
  * \ingroup logging
- * The Log TimePrinter.
+ * The LogTimePrinter.
  * This is private to the logging implementation.
  */
-static TimePrinter g_logTimePrinter = 0;
+static LogTimePrinter g_logTimePrinter = 0;
 /**
  * \ingroup logging
- * The Log NodePrinter.
+ * The LogNodePrinter.
  */
-static NodePrinter g_logNodePrinter = 0;
+static LogNodePrinter g_logNodePrinter = 0;
 
 /**
  * \ingroup logging
@@ -626,7 +626,7 @@ static void CheckEnvironmentVariables (void)
     }
 #endif
 }
-void LogSetTimePrinter (TimePrinter printer)
+void LogSetTimePrinter (LogTimePrinter printer)
 {
   g_logTimePrinter = printer;
   /** \internal
@@ -635,16 +635,16 @@ void LogSetTimePrinter (TimePrinter printer)
    */
   CheckEnvironmentVariables(); 
 }
-TimePrinter LogGetTimePrinter (void)
+LogTimePrinter LogGetTimePrinter (void)
 {
   return g_logTimePrinter;
 }
 
-void LogSetNodePrinter (NodePrinter printer)
+void LogSetNodePrinter (LogNodePrinter printer)
 {
   g_logNodePrinter = printer;
 }
-NodePrinter LogGetNodePrinter (void)
+LogNodePrinter LogGetNodePrinter (void)
 {
   return g_logNodePrinter;
 }

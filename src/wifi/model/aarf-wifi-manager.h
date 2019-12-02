@@ -50,10 +50,13 @@ public:
   AarfWifiManager ();
   virtual ~AarfWifiManager ();
 
+  // Inherited from WifiRemoteStationManager
+  void SetHtSupported (bool enable);
+  void SetVhtSupported (bool enable);
+  void SetHeSupported (bool enable);
 
 private:
-  // Overridden from base class.
-  void DoInitialize (void);
+  //overridden from base class
   WifiRemoteStation * DoCreateStation (void) const;
   void DoReportRxOk (WifiRemoteStation *station,
                      double rxSnr, WifiMode txMode);

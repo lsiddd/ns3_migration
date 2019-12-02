@@ -1,0 +1,1 @@
+/home/sid/hove/src/spectrum/doc/spectrum.rst

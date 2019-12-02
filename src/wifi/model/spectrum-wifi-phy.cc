@@ -188,6 +188,33 @@ SpectrumWifiPhy::ConfigureStandard (WifiPhyStandard standard)
 }
 
 void
+SpectrumWifiPhy::AddOperationalChannel (uint8_t channelNumber)
+{
+  m_operationalChannelList.push_back (channelNumber);
+}
+
+std::vector<uint8_t>
+SpectrumWifiPhy::GetOperationalChannelList () const
+{
+  std::vector<uint8_t> channelList;
+  channelList.push_back (GetChannelNumber ());  // first channel of list
+  for (std::vector<uint8_t>::size_type i = 0; i != m_operationalChannelList.size (); i++)
+    {
+      if (m_operationalChannelList[i] != GetChannelNumber ())
+        {
+          channelList.push_back (m_operationalChannelList[i]);
+        }
+    }
+  return channelList;
+}
+
+void
+SpectrumWifiPhy::ClearOperationalChannelList ()
+{
+  m_operationalChannelList.clear ();
+}
+
+void
 SpectrumWifiPhy::StartRx (Ptr<SpectrumSignalParameters> rxParams)
 {
   NS_LOG_FUNCTION (this << rxParams);
@@ -215,14 +242,6 @@ SpectrumWifiPhy::StartRx (Ptr<SpectrumSignalParameters> rxParams)
 
   // Log the signal arrival to the trace source
   m_signalCb (wifiRxParams ? true : false, senderNodeId, WToDbm (rxPowerW), rxDuration);
-
-  // Do no further processing if signal is too weak
-  // Current implementation assumes constant rx power over the packet duration
-  if (WToDbm (rxPowerW) < GetRxSensitivity ())
-    {
-      NS_LOG_INFO ("Received signal too weak to process: " << WToDbm (rxPowerW) << " dBm");
-      return;
-    }
   if (wifiRxParams == 0)
     {
       NS_LOG_INFO ("Received non Wi-Fi signal");
@@ -240,7 +259,7 @@ SpectrumWifiPhy::StartRx (Ptr<SpectrumSignalParameters> rxParams)
 
   NS_LOG_INFO ("Received Wi-Fi signal");
   Ptr<Packet> packet = wifiRxParams->packet->Copy ();
-  StartReceivePreamble (packet, rxPowerW, rxDuration);
+  StartReceivePreambleAndHeader (packet, rxPowerW, rxDuration);
 }
 
 Ptr<AntennaModel>
@@ -313,9 +332,8 @@ SpectrumWifiPhy::GetCenterFrequencyForChannelWidth (WifiTxVector txVector) const
 void
 SpectrumWifiPhy::StartTx (Ptr<Packet> packet, WifiTxVector txVector, Time txDuration)
 {
-  double txPowerDbm = GetTxPowerForTransmission (txVector) + GetTxGain ();
-  NS_LOG_DEBUG ("Start transmission: signal power before antenna gain=" << txPowerDbm << "dBm");
-  double txPowerWatts = DbmToW (txPowerDbm);
+  NS_LOG_DEBUG ("Start transmission: signal power before antenna gain=" << GetPowerDbm (txVector.GetTxPowerLevel ()) << "dBm");
+  double txPowerWatts = DbmToW (GetPowerDbm (txVector.GetTxPowerLevel ()) + GetTxGain ());
   Ptr<SpectrumValue> txPowerSpectrum = GetTxPowerSpectralDensity (GetCenterFrequencyForChannelWidth (txVector), txVector.GetChannelWidth (), txPowerWatts, txVector.GetMode ().GetModulationClass ());
   Ptr<WifiSpectrumSignalParameters> txParams = Create<WifiSpectrumSignalParameters> ();
   txParams->duration = txDuration;

@@ -26,7 +26,6 @@
 namespace ns3 {
 
 class WifiMac;
-class NetDevice;
 
 /**
  * \brief create MAC layers for a ns3::WifiNetDevice.
@@ -104,7 +103,7 @@ public:
    *
    * This allows the ns3::WifiHelper class to create MAC objects from ns3::WifiHelper::Install.
    */
-  virtual Ptr<WifiMac> Create (Ptr<NetDevice> device) const;
+  virtual Ptr<WifiMac> Create (void) const;
 
 
 protected:

@@ -33,7 +33,6 @@
 #include <ns3/ptr.h>
 #include "ns3/radio-bearer-stats-calculator.h"
 #include <ns3/constant-position-mobility-model.h>
-#include <ns3/ff-mac-scheduler.h>
 #include <ns3/eps-bearer.h>
 #include <ns3/node-container.h>
 #include <ns3/mobility-helper.h>
@@ -256,7 +255,6 @@ LenaPfFfMacSchedulerTestCase1::DoRun (void)
   NetDeviceContainer enbDevs;
   NetDeviceContainer ueDevs;
   lteHelper->SetSchedulerType ("ns3::PfFfMacScheduler");
-  lteHelper->SetSchedulerAttribute ("UlCqiFilter", EnumValue (FfMacScheduler::SRS_UL_CQI));
   enbDevs = lteHelper->InstallEnbDevice (enbNodes);
   ueDevs = lteHelper->InstallUeDevice (ueNodes);
 
@@ -315,7 +313,7 @@ LenaPfFfMacSchedulerTestCase1::DoRun (void)
     }
   /**
   * Check that the assignation is done in a "proportional fair" manner among users
-  * with equal SINRs: the bandwidth should be distributed according to the 
+  * with equal SINRs: the bandwidht should be distributed according to the 
   * ratio of the estimated throughput per TTI of each user; therefore equally 
   * partitioning the whole bandwidth achievable from a single users in a TTI
   */
@@ -340,7 +338,7 @@ LenaPfFfMacSchedulerTestCase1::DoRun (void)
     }
   /**
   * Check that the assignation is done in a "proportional fair" manner among users
-  * with equal SINRs: the bandwidth should be distributed according to the 
+  * with equal SINRs: the bandwidht should be distributed according to the 
   * ratio of the estimated throughput per TTI of each user; therefore equally 
   * partitioning the whole bandwidth achievable from a single users in a TTI
   */
@@ -421,7 +419,6 @@ LenaPfFfMacSchedulerTestCase2::DoRun (void)
   NetDeviceContainer enbDevs;
   NetDeviceContainer ueDevs;
   lteHelper->SetSchedulerType ("ns3::PfFfMacScheduler");
-  lteHelper->SetSchedulerAttribute ("UlCqiFilter", EnumValue (FfMacScheduler::SRS_UL_CQI));
   enbDevs = lteHelper->InstallEnbDevice (enbNodes);
   ueDevs = lteHelper->InstallUeDevice (ueNodes);
 
@@ -480,7 +477,7 @@ LenaPfFfMacSchedulerTestCase2::DoRun (void)
 
   /**
   * Check that the assignation is done in a "proportional fair" manner among users
-  * with different SINRs: the bandwidth should be distributed according to the 
+  * with different SINRs: the bandwidht should be distributed according to the 
   * ratio of the estimated throughput per TTI of each user.
   */
   for (int i = 0; i < m_nUser; i++)

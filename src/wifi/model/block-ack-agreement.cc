@@ -26,14 +26,14 @@ namespace ns3 {
 NS_LOG_COMPONENT_DEFINE ("BlockAckAgreement");
 
 BlockAckAgreement::BlockAckAgreement (Mac48Address peer, uint8_t tid)
-  : m_peer (peer),
-    m_amsduSupported (0),
+  : m_amsduSupported (0),
     m_blockAckPolicy (1),
-    m_tid (tid),
     m_htSupported (0),
     m_inactivityEvent ()
 {
   NS_LOG_FUNCTION (this << peer << +tid);
+  m_tid = tid;
+  m_peer = peer;
 }
 
 BlockAckAgreement::~BlockAckAgreement ()
@@ -46,7 +46,7 @@ void
 BlockAckAgreement::SetBufferSize (uint16_t bufferSize)
 {
   NS_LOG_FUNCTION (this << bufferSize);
-  NS_ASSERT (bufferSize <= 256);
+  NS_ASSERT (bufferSize <= 1024);
   NS_ASSERT (bufferSize % 16 == 0);
   m_bufferSize = bufferSize;
 }
@@ -98,6 +98,7 @@ BlockAckAgreement::SetAmsduSupport (bool supported)
 uint8_t
 BlockAckAgreement::GetTid (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_tid;
 }
 
@@ -111,24 +112,28 @@ BlockAckAgreement::GetPeer (void) const
 uint16_t
 BlockAckAgreement::GetBufferSize (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_bufferSize;
 }
 
 uint16_t
 BlockAckAgreement::GetTimeout (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_timeout;
 }
 
 uint16_t
 BlockAckAgreement::GetStartingSequence (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_startingSeq;
 }
 
 uint16_t
 BlockAckAgreement::GetStartingSequenceControl (void) const
 {
+  NS_LOG_FUNCTION (this);
   uint16_t seqControl = (m_startingSeq << 4) & 0xfff0;
   return seqControl;
 }
@@ -136,12 +141,14 @@ BlockAckAgreement::GetStartingSequenceControl (void) const
 bool
 BlockAckAgreement::IsImmediateBlockAck (void) const
 {
+  NS_LOG_FUNCTION (this);
   return (m_blockAckPolicy == 1);
 }
 
 bool
 BlockAckAgreement::IsAmsduSupported (void) const
 {
+  NS_LOG_FUNCTION (this);
   return (m_amsduSupported == 1) ? true : false;
 }
 
@@ -167,6 +174,7 @@ BlockAckAgreement::SetHtSupported (bool htSupported)
 bool
 BlockAckAgreement::IsHtSupported (void) const
 {
+  NS_LOG_FUNCTION (this);
   return (m_htSupported == 1) ? true : false;
 }
 

@@ -43,7 +43,8 @@
  * \file
  * \ingroup simulator
  * ns3::Simulator implementation, as well as implementation pointer,
- * global scheduler implementation.
+ * global scheduler implementation, and default ns3::NodePrinter
+ * and ns3::TimePrinter.
  */
 
 namespace ns3 {
@@ -75,6 +76,61 @@ static GlobalValue g_schedTypeImpl = GlobalValue ("SchedulerType",
                                                   "The object class to use as the scheduler implementation",
                                                   TypeIdValue (MapScheduler::GetTypeId ()),
                                                   MakeTypeIdChecker ());
+
+/**
+ * \ingroup logging
+ * Default TimePrinter implementation.
+ *
+ * \param [in,out] os The output stream to print the time on.
+ */
+static void
+TimePrinter (std::ostream &os)
+{
+  std::ios_base::fmtflags ff = os.flags (); // Save stream flags
+  std::streamsize oldPrecision = os.precision ();
+  if (Time::GetResolution () == Time::NS)
+    {
+      os << std::fixed << std::setprecision (9) << Simulator::Now ().As (Time::S);
+    }
+  else if (Time::GetResolution () == Time::PS) 
+    {
+      os << std::fixed << std::setprecision (12) << Simulator::Now ().As (Time::S);
+    }
+  else if (Time::GetResolution () == Time::FS) 
+    {
+      os << std::fixed << std::setprecision (15) << Simulator::Now ().As (Time::S);
+    }
+  else if (Time::GetResolution () == Time::US) 
+    {
+      os << std::fixed << std::setprecision (6) << Simulator::Now ().As (Time::S);
+    }
+  else
+    {
+      // default C++ precision of 5
+      os << std::fixed << std::setprecision (5) << Simulator::Now ().As (Time::S);
+    }
+  os << std::setprecision (oldPrecision);
+  os.flags (ff); // Restore stream flags
+}
+
+/**
+ * \ingroup logging
+ * Default node id printer implementation.
+ * 
+ * \param [in,out] os The output stream to print the node id on.
+ */
+static void
+NodePrinter (std::ostream &os)
+{
+  if (Simulator::GetContext () == Simulator::NO_CONTEXT)
+    {
+      os << "-1";
+    }
+  else
+    {
+      os << Simulator::GetContext ();
+    }
+}
 
 /**
  * \ingroup simulator
@@ -124,8 +180,8 @@ static SimulatorImpl * GetImpl (void)
 // Simulator::Now which would call Simulator::GetImpl, and, thus, get us 
 // in an infinite recursion until the stack explodes.
 //
-      LogSetTimePrinter (&DefaultTimePrinter);
-      LogSetNodePrinter (&DefaultNodePrinter);
+      LogSetTimePrinter (&TimePrinter);
+      LogSetNodePrinter (&NodePrinter);
     }
   return *pimpl;
 }
@@ -323,12 +379,6 @@ Simulator::GetContext (void)
 {
   return GetImpl ()->GetContext ();
 }
-  
-uint64_t
-Simulator::GetEventCount (void)
-{
-  return GetImpl ()-> GetEventCount ();
-}
 
 uint32_t
 Simulator::GetSystemId (void)
@@ -367,8 +417,8 @@ Simulator::SetImplementation (Ptr<SimulatorImpl> impl)
 // Simulator::Now which would call Simulator::GetImpl, and, thus, get us 
 // in an infinite recursion until the stack explodes.
 //
-  LogSetTimePrinter (&DefaultTimePrinter);
-  LogSetNodePrinter (&DefaultNodePrinter);
+  LogSetTimePrinter (&TimePrinter);
+  LogSetNodePrinter (&NodePrinter);
 }
 
 Ptr<SimulatorImpl>

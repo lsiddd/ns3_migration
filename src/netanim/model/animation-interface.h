@@ -40,7 +40,6 @@
 #include "ns3/lte-ue-net-device.h"
 #include "ns3/lte-enb-net-device.h"
 #include "ns3/uan-phy-gen.h"
-#include "ns3/wifi-phy.h"
 #include "ns3/rectangle.h"
 #include "ns3/ipv4.h"
 #include "ns3/ipv4-l3-protocol.h"
@@ -999,9 +998,8 @@ private:
    * wifi Phy receive drop trace function
    * \param context the context
    * \param p the packet
-   * \param reason the reason
    */
-  void WifiPhyRxDropTrace (std::string context, Ptr<const Packet> p, WifiPhyRxfailureReason reason);
+  void WifiPhyRxDropTrace (std::string context, Ptr<const Packet> p);
   /**
    * LR-WPAN MAC transmit trace function
    * \param context the context
@@ -1049,9 +1047,8 @@ private:
    * wifi Phy transmit begin trace function
    * \param context the context
    * \param p the packet
-   * \param txPowerW the tx power
    */
-  void WifiPhyTxBeginTrace (std::string context, Ptr<const Packet> p, double txPowerW);
+  void WifiPhyTxBeginTrace (std::string context, Ptr<const Packet> p);
   /**
    * wifi Phy receive begin trace function
    *

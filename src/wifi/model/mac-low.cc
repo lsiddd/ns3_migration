@@ -18,17 +18,16 @@
  *
  * Authors: Mathieu Lacage <mathieu.lacage@sophia.inria.fr>
  *          Mirko Banchi <mk.banchi@gmail.com>
- *          Stefano Avallone <stavallo@unina.it>
  */
 
 #include "ns3/simulator.h"
 #include "ns3/log.h"
+#include "ns3/socket.h"
 #include "mac-low.h"
 #include "qos-txop.h"
 #include "snr-tag.h"
 #include "ampdu-tag.h"
 #include "wifi-mac-queue.h"
-#include "wifi-psdu.h"
 #include "wifi-utils.h"
 #include "ctrl-headers.h"
 #include "mgt-headers.h"
@@ -40,8 +39,6 @@
 #include "wifi-mac-trailer.h"
 #include "wifi-phy.h"
 #include "wifi-net-device.h"
-#include "wifi-mac.h"
-#include <algorithm>
 
 #undef NS_LOG_APPEND_CONTEXT
 #define NS_LOG_APPEND_CONTEXT std::clog << "[mac=" << m_self << "] "
@@ -108,9 +105,7 @@ private:
 
 
 MacLow::MacLow ()
-  : m_msduAggregator (0),
-    m_mpduAggregator (0),
-    m_normalAckTimeoutEvent (),
+  : m_normalAckTimeoutEvent (),
     m_blockAckTimeoutEvent (),
     m_ctsTimeoutEvent (),
     m_sendCtsEvent (),
@@ -126,11 +121,16 @@ MacLow::MacLow ()
     m_lastBeacon (Seconds (0)),
     m_cfpForeshortening (Seconds (0)),
     m_promisc (false),
+    m_ampdu (false),
     m_phyMacLowListener (0),
     m_ctsToSelfSupported (false),
     m_cfAckInfo ()
 {
   NS_LOG_FUNCTION (this);
+  for (uint8_t i = 0; i < 8; i++)
+    {
+      m_aggregateQueue[i] = CreateObject<WifiMacQueue> ();
+    }
 }
 
 MacLow::~MacLow ()
@@ -180,8 +180,6 @@ MacLow::DoDispose (void)
   m_sendDataEvent.Cancel ();
   m_waitIfsEvent.Cancel ();
   m_endTxNoAckEvent.Cancel ();
-  m_msduAggregator = 0;
-  m_mpduAggregator = 0;
   m_phy = 0;
   m_stationManager = 0;
   if (m_phyMacLowListener != 0)
@@ -189,6 +187,11 @@ MacLow::DoDispose (void)
       delete m_phyMacLowListener;
       m_phyMacLowListener = 0;
     }
+  for (uint8_t i = 0; i < 8; i++)
+    {
+      m_aggregateQueue[i] = 0;
+    }
+  m_ampdu = false;
 }
 
 void
@@ -261,48 +264,16 @@ MacLow::GetPhy (void) const
 void
 MacLow::ResetPhy (void)
 {
-  m_phy->SetReceiveOkCallback (MakeNullCallback<void, Ptr<Packet>, double, WifiTxVector, std::vector<bool>> ());
-  m_phy->SetReceiveErrorCallback (MakeNullCallback<void, Ptr<Packet>> ());
+  m_phy->SetReceiveOkCallback (MakeNullCallback<void, Ptr<Packet>, double, WifiTxVector> ());
+  m_phy->SetReceiveErrorCallback (MakeNullCallback<void, Ptr<Packet>, double> ());
   RemovePhyMacLowListener (m_phy);
   m_phy = 0;
-}
-
-void
-MacLow::SetMac (const Ptr<WifiMac> mac)
-{
-  m_mac = mac;
 }
 
 void
 MacLow::SetWifiRemoteStationManager (const Ptr<WifiRemoteStationManager> manager)
 {
   m_stationManager = manager;
-}
-
-Ptr<MsduAggregator>
-MacLow::GetMsduAggregator (void) const
-{
-  return m_msduAggregator;
-}
-
-Ptr<MpduAggregator>
-MacLow::GetMpduAggregator (void) const
-{
-  return m_mpduAggregator;
-}
-
-void
-MacLow::SetMsduAggregator (const Ptr<MsduAggregator> aggr)
-{
-  NS_LOG_FUNCTION (this << aggr);
-  m_msduAggregator = aggr;
-}
-
-void
-MacLow::SetMpduAggregator (const Ptr<MpduAggregator> aggr)
-{
-  NS_LOG_FUNCTION (this << aggr);
-  m_mpduAggregator = aggr;
 }
 
 void
@@ -336,7 +307,7 @@ MacLow::SetCtsToSelfSupported (bool enable)
 }
 
 bool
-MacLow::GetCtsToSelfSupported (void) const
+MacLow::GetCtsToSelfSupported () const
 {
   return m_ctsToSelfSupported;
 }
@@ -408,13 +379,13 @@ MacLow::GetAckTimeout (void) const
 }
 
 Time
-MacLow::GetBasicBlockAckTimeout (void) const
+MacLow::GetBasicBlockAckTimeout () const
 {
   return m_basicBlockAckTimeout;
 }
 
 Time
-MacLow::GetCompressedBlockAckTimeout (void) const
+MacLow::GetCompressedBlockAckTimeout () const
 {
   return m_compressedBlockAckTimeout;
 }
@@ -428,12 +399,14 @@ MacLow::GetCtsTimeout (void) const
 Time
 MacLow::GetSifs (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_sifs;
 }
 
 Time
 MacLow::GetRifs (void) const
 {
+  NS_LOG_FUNCTION (this);
   return m_rifs;
 }
 
@@ -485,12 +458,29 @@ MacLow::RegisterDcf (Ptr<ChannelAccessManager> dcf)
   m_channelAccessManagers.push_back (dcf);
 }
 
+bool
+MacLow::IsAmpdu (Ptr<const Packet> packet, const WifiMacHeader hdr)
+{
+  uint32_t size, actualSize;
+  WifiMacTrailer fcs;
+  size = packet->GetSize () + hdr.GetSize () + fcs.GetSerializedSize ();
+  Ptr<Packet> p = AggregateToAmpdu (packet, hdr);
+  actualSize = p->GetSize ();
+  if (actualSize > size)
+    {
+      m_currentPacket = p;
+      return true;
+    }
+  return false;
+}
+
 void
-MacLow::StartTransmission (Ptr<WifiMacQueueItem> mpdu,
+MacLow::StartTransmission (Ptr<const Packet> packet,
+                           const WifiMacHeader* hdr,
                            MacLowTransmissionParameters params,
                            Ptr<Txop> txop)
 {
-  NS_LOG_FUNCTION (this << *mpdu << params << txop);
+  NS_LOG_FUNCTION (this << packet << hdr << params << txop);
   NS_ASSERT (!m_cfAckInfo.expectCfAck);
   if (m_phy->IsStateOff ())
     {
@@ -511,83 +501,86 @@ MacLow::StartTransmission (Ptr<WifiMacQueueItem> mpdu,
    * QapScheduler has taken access to the channel from
    * one of the Edca of the QAP.
    */
-  m_currentPacket = Create<WifiPsdu> (mpdu, false);
-  const WifiMacHeader& hdr = mpdu->GetHeader ();
+  m_currentPacket = packet->Copy ();
+  // remove the priority tag attached, if any
+  SocketPriorityTag priorityTag;
+  m_currentPacket->RemovePacketTag (priorityTag);
+  m_currentHdr = *hdr;
   CancelAllEvents ();
   m_currentTxop = txop;
   m_txParams = params;
-  if (hdr.IsCtl ())
+  m_currentTxVector = GetDataTxVector (m_currentPacket, &m_currentHdr);
+
+  if (NeedRts () && !IsCfPeriod ())
     {
-      m_currentTxVector = GetRtsTxVector  (mpdu);
+      m_txParams.EnableRts ();
     }
   else
     {
-      m_currentTxVector = GetDataTxVector (mpdu);
+      m_txParams.DisableRts ();
     }
 
-  /* The packet received by this function can be any of the following:
-   * (a) a management frame dequeued from the Txop
-   * (b) a non-QoS data frame dequeued from the Txop
-   * (c) a QoS data or DELBA Request frame dequeued from a QosTxop
-   * (d) a BlockAckReq or ADDBA Request frame
-   */
-  if (hdr.IsQosData () && !hdr.GetAddr1 ().IsBroadcast () && m_mpduAggregator != 0)
+  if (m_currentHdr.IsMgt ()
+      || (!m_currentHdr.IsQosData ()
+          && !m_currentHdr.IsBlockAck ()
+          && !m_currentHdr.IsBlockAckReq ()))
     {
-      /* We get here if the received packet is any of the following:
-       * (a) a QoS data frame
-       * (b) a BlockAckRequest
-       */
-      uint8_t tid = GetTid (mpdu->GetPacket (), hdr);
-      Ptr<QosTxop> qosTxop = m_edca.find (QosUtilsMapTidToAc (tid))->second;
-      std::vector<Ptr<WifiMacQueueItem>> mpduList;
-
-      // if a TXOP limit exists, compute the remaining TXOP duration
-      Time txopLimit = Seconds (0);
-      if (m_currentTxop->GetTxopLimit ().IsStrictlyPositive ())
+      //This is mainly encountered when a higher priority control or management frame is
+      //sent between A-MPDU transmissions. It avoids to unexpectedly flush the aggregate
+      //queue when previous RTS request has failed.
+      m_ampdu = false;
+    }
+  else if (m_currentHdr.IsQosData () && !m_aggregateQueue[GetTid (packet, *hdr)]->IsEmpty ())
+    {
+      //m_aggregateQueue > 0 occurs when a RTS/CTS exchange failed before an A-MPDU transmission.
+      //In that case, we transmit the same A-MPDU as previously.
+      uint32_t sentMpdus = m_aggregateQueue[GetTid (packet, *hdr)]->GetNPackets ();
+      m_ampdu = true;
+      if (sentMpdus > 1)
         {
-          txopLimit = m_currentTxop->GetTxopRemaining () - CalculateOverheadTxTime (mpdu, m_txParams);
-          NS_ASSERT (txopLimit.IsPositive ());
+          m_txParams.EnableCompressedBlockAck ();
         }
-
-      //Perform MPDU aggregation if possible
-      mpduList = m_mpduAggregator->GetNextAmpdu (mpdu, m_currentTxVector, txopLimit);
-
-      if (mpduList.size () > 1)
+      else if (m_currentHdr.IsQosData ())
         {
-          m_currentPacket = Create<WifiPsdu> (mpduList);
-
-          if (qosTxop->GetBaBufferSize (hdr.GetAddr1 (), tid) > 64)
-            {
-              m_txParams.EnableExtendedCompressedBlockAck ();
-            }
-          else
+          //VHT/HE single MPDUs are followed by normal ACKs
+          m_txParams.EnableAck ();
+        }
+      AcIndex ac = QosUtilsMapTidToAc (GetTid (packet, *hdr));
+      std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+      Ptr<Packet> aggregatedPacket = Create<Packet> ();
+      for (uint32_t i = 0; i < sentMpdus; i++)
+        {
+          Ptr<Packet> newPacket = (m_txPackets[GetTid (packet, *hdr)].at (i).packet)->Copy ();
+          newPacket->AddHeader (m_txPackets[GetTid (packet, *hdr)].at (i).hdr);
+          AddWifiMacTrailer (newPacket);
+          edcaIt->second->GetMpduAggregator ()->Aggregate (newPacket, aggregatedPacket);
+        }
+      m_currentPacket = aggregatedPacket;
+      m_currentHdr = (m_txPackets[GetTid (packet, *hdr)].at (0).hdr);
+      m_currentTxVector = GetDataTxVector (m_currentPacket, &m_currentHdr);
+    }
+  else
+    {
+      //Perform MPDU aggregation if possible
+      m_ampdu = IsAmpdu (m_currentPacket, m_currentHdr);
+      if (m_ampdu)
+        {
+          AmpduTag ampdu;
+          m_currentPacket->PeekPacketTag (ampdu);
+          if (ampdu.GetRemainingNbOfMpdus () > 0)
             {
               m_txParams.EnableCompressedBlockAck ();
             }
-
-          NS_LOG_DEBUG ("tx unicast A-MPDU containing " << mpduList.size () << " MPDUs");
-          qosTxop->SetAmpduExist (hdr.GetAddr1 (), true);
-        }
-      else if (m_currentTxVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_VHT
-               || m_currentTxVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HE)
-        {
-          // VHT/HE single MPDU
-          m_currentPacket = Create<WifiPsdu> (mpdu, true);
-          m_currentPacket->SetAckPolicyForTid (tid, WifiMacHeader::NORMAL_ACK);
-
-          //VHT/HE single MPDUs are followed by normal ACKs
-          m_txParams.EnableAck ();
-          NS_LOG_DEBUG ("tx unicast S-MPDU with sequence number " << hdr.GetSequenceNumber ());
-          qosTxop->SetAmpduExist (hdr.GetAddr1 (), true);
-        }
-      else if (hdr.IsQosData () && !hdr.IsQosBlockAck () && !hdr.GetAddr1 ().IsGroup ())
-        {
-          m_txParams.EnableAck ();
+          else if (m_currentHdr.IsQosData ())
+            {
+              //VHT/HE single MPDUs are followed by normal ACKs
+              m_txParams.EnableAck ();
+            }
         }
     }
 
-  NS_LOG_DEBUG ("startTx size=" << m_currentPacket->GetSize () <<
-                ", to=" << m_currentPacket->GetAddr1 () << ", txop=" << m_currentTxop);
+  NS_LOG_DEBUG ("startTx size=" << GetSize (m_currentPacket, &m_currentHdr, m_ampdu) <<
+                ", to=" << m_currentHdr.GetAddr1 () << ", txop=" << m_currentTxop);
 
   if (m_txParams.MustSendRts ())
     {
@@ -610,75 +603,26 @@ MacLow::StartTransmission (Ptr<WifiMacQueueItem> mpdu,
 }
 
 bool
+MacLow::NeedRts (void) const
+{
+  WifiTxVector dataTxVector = GetDataTxVector (m_currentPacket, &m_currentHdr);
+  return m_stationManager->NeedRts (m_currentHdr.GetAddr1 (), &m_currentHdr,
+                                    m_currentPacket, dataTxVector);
+}
+
+bool
 MacLow::NeedCtsToSelf (void) const
 {
-  WifiTxVector dataTxVector = GetDataTxVector (*m_currentPacket->begin ());
+  WifiTxVector dataTxVector = GetDataTxVector (m_currentPacket, &m_currentHdr);
   return m_stationManager->NeedCtsToSelf (dataTxVector);
 }
 
-bool
-MacLow::IsWithinSizeAndTimeLimits (Ptr<const WifiMacQueueItem> mpdu, WifiTxVector txVector,
-                                    uint32_t ampduSize, Time ppduDurationLimit)
-{
-  NS_ASSERT (mpdu != 0 && mpdu->GetHeader ().IsQosData ());
-
-  return IsWithinSizeAndTimeLimits (mpdu->GetSize (), mpdu->GetHeader ().GetAddr1 (),
-                                    mpdu->GetHeader ().GetQosTid (), txVector,
-                                    ampduSize, ppduDurationLimit);
-}
-
-bool
-MacLow::IsWithinSizeAndTimeLimits (uint32_t mpduSize, Mac48Address receiver, uint8_t tid,
-                                    WifiTxVector txVector, uint32_t ampduSize, Time ppduDurationLimit)
-{
-  NS_LOG_FUNCTION (this << mpduSize << receiver << +tid << txVector << ampduSize << ppduDurationLimit);
-
-  WifiModulationClass modulation = txVector.GetMode ().GetModulationClass ();
-
-  uint32_t maxAmpduSize = 0;
-  if (GetMpduAggregator ())
-    {
-      maxAmpduSize = GetMpduAggregator ()->GetMaxAmpduSize (receiver, tid, modulation);
-    }
-
-  // If maxAmpduSize is null, then ampduSize must be null as well
-  NS_ASSERT (maxAmpduSize || ampduSize == 0);
-
-  uint32_t ppduPayloadSize = mpduSize;
-
-  // compute the correct size for A-MPDUs and S-MPDUs
-  if (ampduSize > 0 || modulation == WIFI_MOD_CLASS_HE || modulation == WIFI_MOD_CLASS_VHT)
-    {
-      ppduPayloadSize = GetMpduAggregator ()->GetSizeIfAggregated (mpduSize, ampduSize);
-    }
-
-  if (maxAmpduSize > 0 && ppduPayloadSize > maxAmpduSize)
-    {
-      NS_LOG_DEBUG ("the frame does not meet the constraint on max A-MPDU size");
-      return false;
-    }
-
-  // Get the maximum PPDU Duration based on the preamble type
-  Time maxPpduDuration = GetPpduMaxTime (txVector.GetPreambleType ());
-
-  Time txTime = m_phy->CalculateTxDuration (ppduPayloadSize, txVector, m_phy->GetFrequency ());
-
-  if ((ppduDurationLimit.IsStrictlyPositive () && txTime > ppduDurationLimit)
-      || (maxPpduDuration.IsStrictlyPositive () && txTime > maxPpduDuration))
-    {
-      NS_LOG_DEBUG ("the frame does not meet the constraint on max PPDU duration");
-      return false;
-    }
-
-  return true;
-}
-
 void
-MacLow::ReceiveError (Ptr<Packet> packet)
+MacLow::ReceiveError (Ptr<Packet> packet, double rxSnr)
 {
-  NS_LOG_FUNCTION (this << packet);
+  NS_LOG_FUNCTION (this << packet << rxSnr);
   NS_LOG_DEBUG ("rx failed");
-  if (IsCfPeriod () && m_currentPacket->GetHeader (0).IsCfPoll ())
+  if (IsCfPeriod () && m_currentHdr.IsCfPoll ())
     {
       NS_ASSERT (m_currentTxop != 0);
       m_currentTxop->MissedCfPollResponse (m_cfAckInfo.expectCfAck);
@@ -799,13 +743,13 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
           NS_FATAL_ERROR ("Received CTS as part of an A-MPDU");
         }
 
-      NS_LOG_DEBUG ("received cts from=" << m_currentPacket->GetAddr1 ());
+      NS_LOG_DEBUG ("received cts from=" << m_currentHdr.GetAddr1 ());
 
       SnrTag tag;
       packet->RemovePacketTag (tag);
-      m_stationManager->ReportRxOk (m_currentPacket->GetAddr1 (), &m_currentPacket->GetHeader (0),
+      m_stationManager->ReportRxOk (m_currentHdr.GetAddr1 (), &m_currentHdr,
                                     rxSnr, txVector.GetMode ());
-      m_stationManager->ReportRtsOk (m_currentPacket->GetAddr1 (), &m_currentPacket->GetHeader (0),
+      m_stationManager->ReportRtsOk (m_currentHdr.GetAddr1 (), &m_currentHdr,
                                      rxSnr, txVector.GetMode (), tag.Get ());
 
       m_ctsTimeoutEvent.Cancel ();
@@ -820,15 +764,15 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
            && m_normalAckTimeoutEvent.IsRunning ()
            && m_txParams.MustWaitNormalAck ())
     {
-      NS_LOG_DEBUG ("receive ack from=" << m_currentPacket->GetAddr1 ());
+      NS_LOG_DEBUG ("receive ack from=" << m_currentHdr.GetAddr1 ());
       SnrTag tag;
       packet->RemovePacketTag (tag);
       //When fragmentation is used, only update manager when the last fragment is acknowledged
       if (!m_txParams.HasNextPacket ())
         {
-          m_stationManager->ReportRxOk (m_currentPacket->GetAddr1 (), &m_currentPacket->GetHeader (0),
+          m_stationManager->ReportRxOk (m_currentHdr.GetAddr1 (), &m_currentHdr,
                                         rxSnr, txVector.GetMode ());
-          m_stationManager->ReportDataOk (m_currentPacket->GetAddr1 (), &m_currentPacket->GetHeader (0),
+          m_stationManager->ReportDataOk (m_currentHdr.GetAddr1 (), &m_currentHdr,
                                           rxSnr, txVector.GetMode (), tag.Get (),
                                           m_currentPacket->GetSize ());
         }
@@ -844,7 +788,7 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
         {
           m_currentTxop->GotAck ();
         }
-      if (m_txParams.HasNextPacket ())
+      if (m_txParams.HasNextPacket () && (!m_currentHdr.IsQosData () || m_currentTxop->GetTxopLimit ().IsZero () || m_currentTxop->HasTxop ()))
         {
           if (m_stationManager->GetRifsPermitted ())
             {
@@ -855,8 +799,7 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
               m_waitIfsEvent = Simulator::Schedule (GetSifs (), &MacLow::WaitIfsAfterEndTxFragment, this);
             }
         }
-      else if (m_currentPacket->GetHeader (0).IsQosData () && m_currentTxop->IsQosTxop () &&
-               m_currentTxop->GetTxopLimit ().IsStrictlyPositive () && m_currentTxop->GetTxopRemaining () > GetSifs ())
+      else if (m_currentHdr.IsQosData () && m_currentTxop->HasTxop ())
         {
           if (m_stationManager->GetRifsPermitted ())
             {
@@ -867,26 +810,27 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
               m_waitIfsEvent = Simulator::Schedule (GetSifs (), &MacLow::WaitIfsAfterEndTxPacket, this);
             }
         }
-      else if (m_currentTxop->IsQosTxop ())
+      m_ampdu = false;
+      if (m_currentHdr.IsQosData ())
         {
-          m_currentTxop->TerminateTxop ();
+          FlushAggregateQueue (m_currentHdr.GetQosTid ());
         }
     }
   else if (hdr.IsBlockAck () && hdr.GetAddr1 () == m_self
-           && m_txParams.MustWaitBlockAck ()
+           && (m_txParams.MustWaitBasicBlockAck () || m_txParams.MustWaitCompressedBlockAck ())
            && m_blockAckTimeoutEvent.IsRunning ())
     {
       NS_LOG_DEBUG ("got block ack from " << hdr.GetAddr2 ());
       SnrTag tag;
       packet->RemovePacketTag (tag);
+      FlushAggregateQueue (GetTid (packet, hdr));
       CtrlBAckResponseHeader blockAck;
       packet->RemoveHeader (blockAck);
       m_blockAckTimeoutEvent.Cancel ();
       NotifyAckTimeoutResetNow ();
       m_currentTxop->GotBlockAck (&blockAck, hdr.GetAddr2 (), rxSnr, txVector.GetMode (), tag.Get ());
-      // start next packet if TXOP remains, otherwise contend for accessing the channel again
-      if (m_currentTxop->IsQosTxop () && m_currentTxop->GetTxopLimit ().IsStrictlyPositive ()
-          && m_currentTxop->GetTxopRemaining () > GetSifs ())
+      m_ampdu = false;
+      if (m_currentHdr.IsQosData () && m_currentTxop->HasTxop ())
         {
           if (m_stationManager->GetRifsPermitted ())
             {
@@ -896,10 +840,6 @@ MacLow::ReceiveOk (Ptr<Packet> packet, double rxSnr, WifiTxVector txVector, bool
             {
               m_waitIfsEvent = Simulator::Schedule (GetSifs (), &MacLow::WaitIfsAfterEndTxPacket, this);
             }
-        }
-      else if (m_currentTxop->IsQosTxop ())
-        {
-          m_currentTxop->TerminateTxop ();
         }
     }
   else if (hdr.IsBlockAckReq () && hdr.GetAddr1 () == m_self)
@@ -1194,207 +1134,35 @@ MacLow::GetCtsDuration (WifiTxVector ctsTxVector) const
 }
 
 WifiTxVector
-MacLow::GetRtsTxVector (Ptr<const WifiMacQueueItem> item) const
+MacLow::GetRtsTxVector (Ptr<const Packet> packet, const WifiMacHeader *hdr) const
 {
-  Mac48Address to = item->GetHeader ().GetAddr1 ();
-  return m_stationManager->GetRtsTxVector (to, &item->GetHeader (), item->GetPacket ());
+  Mac48Address to = hdr->GetAddr1 ();
+  return m_stationManager->GetRtsTxVector (to, hdr, packet);
 }
 
 WifiTxVector
-MacLow::GetDataTxVector (Ptr<const WifiMacQueueItem> item) const
+MacLow::GetDataTxVector (Ptr<const Packet> packet, const WifiMacHeader *hdr) const
 {
-  Mac48Address to = item->GetHeader ().GetAddr1 ();
-  return m_stationManager->GetDataTxVector (to, &item->GetHeader (), item->GetPacket ());
-}
-
-WifiMode
-MacLow::GetControlAnswerMode (WifiMode reqMode) const
-{
-  /**
-   * The standard has relatively unambiguous rules for selecting a
-   * control response rate (the below is quoted from IEEE 802.11-2012,
-   * Section 9.7):
-   *
-   * To allow the transmitting STA to calculate the contents of the
-   * Duration/ID field, a STA responding to a received frame shall
-   * transmit its Control Response frame (either CTS or ACK), other
-   * than the BlockAck control frame, at the highest rate in the
-   * BSSBasicRateSet parameter that is less than or equal to the
-   * rate of the immediately previous frame in the frame exchange
-   * sequence (as defined in Annex G) and that is of the same
-   * modulation class (see Section 9.7.8) as the received frame...
-   */
-  NS_LOG_FUNCTION (this << reqMode);
-  WifiMode mode = m_stationManager->GetDefaultMode ();
-  bool found = false;
-  //First, search the BSS Basic Rate set
-  for (uint8_t i = 0; i < m_stationManager->GetNBasicModes (); i++)
-    {
-      WifiMode testMode = m_stationManager->GetBasicMode (i);
-      if ((!found || testMode.IsHigherDataRate (mode))
-          && (!testMode.IsHigherDataRate (reqMode))
-          && (IsAllowedControlAnswerModulationClass (reqMode.GetModulationClass (), testMode.GetModulationClass ())))
-        {
-          mode = testMode;
-          //We've found a potentially-suitable transmit rate, but we
-          //need to continue and consider all the basic rates before
-          //we can be sure we've got the right one.
-          found = true;
-        }
-    }
-  if (m_stationManager->GetHtSupported () || m_stationManager->GetVhtSupported () || m_stationManager->GetHeSupported ())
-    {
-      if (!found)
-        {
-          mode = m_stationManager->GetDefaultMcs ();
-          for (uint8_t i = 0; i != m_stationManager->GetNBasicMcs (); i++)
-            {
-              WifiMode testMode = m_stationManager->GetBasicMcs (i);
-              if ((!found || testMode.IsHigherDataRate (mode))
-                  && (!testMode.IsHigherDataRate (reqMode))
-                  && (testMode.GetModulationClass () == reqMode.GetModulationClass ()))
-                {
-                  mode = testMode;
-                  //We've found a potentially-suitable transmit rate, but we
-                  //need to continue and consider all the basic rates before
-                  //we can be sure we've got the right one.
-                  found = true;
-                }
-            }
-        }
-    }
-  //If we found a suitable rate in the BSSBasicRateSet, then we are
-  //done and can return that mode.
-  if (found)
-    {
-      NS_LOG_DEBUG ("MacLow::GetControlAnswerMode returning " << mode);
-      return mode;
-    }
-
-  /**
-   * If no suitable basic rate was found, we search the mandatory
-   * rates. The standard (IEEE 802.11-2007, Section 9.6) says:
-   *
-   *   ...If no rate contained in the BSSBasicRateSet parameter meets
-   *   these conditions, then the control frame sent in response to a
-   *   received frame shall be transmitted at the highest mandatory
-   *   rate of the PHY that is less than or equal to the rate of the
-   *   received frame, and that is of the same modulation class as the
-   *   received frame. In addition, the Control Response frame shall
-   *   be sent using the same PHY options as the received frame,
-   *   unless they conflict with the requirement to use the
-   *   BSSBasicRateSet parameter.
-   *
-   * \todo Note that we're ignoring the last sentence for now, because
-   * there is not yet any manipulation here of PHY options.
-   */
-  for (uint8_t idx = 0; idx < m_phy->GetNModes (); idx++)
-    {
-      WifiMode thismode = m_phy->GetMode (idx);
-      /* If the rate:
-       *
-       *  - is a mandatory rate for the PHY, and
-       *  - is equal to or faster than our current best choice, and
-       *  - is less than or equal to the rate of the received frame, and
-       *  - is of the same modulation class as the received frame
-       *
-       * ...then it's our best choice so far.
-       */
-      if (thismode.IsMandatory ()
-          && (!found || thismode.IsHigherDataRate (mode))
-          && (!thismode.IsHigherDataRate (reqMode))
-          && (IsAllowedControlAnswerModulationClass (reqMode.GetModulationClass (), thismode.GetModulationClass ())))
-        {
-          mode = thismode;
-          //As above; we've found a potentially-suitable transmit
-          //rate, but we need to continue and consider all the
-          //mandatory rates before we can be sure we've got the right one.
-          found = true;
-        }
-    }
-  if (m_stationManager->GetHtSupported () || m_stationManager->GetVhtSupported () || m_stationManager->GetHeSupported ())
-    {
-      for (uint8_t idx = 0; idx < m_phy->GetNMcs (); idx++)
-        {
-          WifiMode thismode = m_phy->GetMcs (idx);
-          if (thismode.IsMandatory ()
-              && (!found || thismode.IsHigherDataRate (mode))
-              && (!thismode.IsHigherCodeRate (reqMode))
-              && (thismode.GetModulationClass () == reqMode.GetModulationClass ()))
-            {
-              mode = thismode;
-              //As above; we've found a potentially-suitable transmit
-              //rate, but we need to continue and consider all the
-              //mandatory rates before we can be sure we've got the right one.
-              found = true;
-            }
-        }
-    }
-
-  /**
-   * If we still haven't found a suitable rate for the response then
-   * someone has messed up the simulation config. This probably means
-   * that the WifiPhyStandard is not set correctly, or that a rate that
-   * is not supported by the PHY has been explicitly requested.
-   *
-   * Either way, it is serious - we can either disobey the standard or
-   * fail, and I have chosen to do the latter...
-   */
-  if (!found)
-    {
-      NS_FATAL_ERROR ("Can't find response rate for " << reqMode);
-    }
-
-  NS_LOG_DEBUG ("MacLow::GetControlAnswerMode returning " << mode);
-  return mode;
+  Mac48Address to = hdr->GetAddr1 ();
+  return m_stationManager->GetDataTxVector (to, hdr, packet);
 }
 
 WifiTxVector
 MacLow::GetCtsTxVector (Mac48Address to, WifiMode rtsTxMode) const
 {
-  NS_ASSERT (!to.IsGroup ());
-  WifiMode ctsMode = GetControlAnswerMode (rtsTxMode);
-  WifiTxVector v;
-  v.SetMode (ctsMode);
-  v.SetPreambleType (GetPreambleForTransmission (ctsMode.GetModulationClass (), m_stationManager->GetShortPreambleEnabled (), m_stationManager->UseGreenfieldForDestination (to)));
-  v.SetTxPowerLevel (m_stationManager->GetDefaultTxPowerLevel ());
-  v.SetChannelWidth (GetChannelWidthForTransmission (ctsMode, m_phy->GetChannelWidth ()));
-   uint16_t ctsTxGuardInterval = ConvertGuardIntervalToNanoSeconds (ctsMode, m_phy->GetShortGuardInterval (), m_phy->GetGuardInterval ());
-  v.SetGuardInterval (ctsTxGuardInterval);
-  v.SetNss (1);
-  return v;
+  return m_stationManager->GetCtsTxVector (to, rtsTxMode);
 }
 
 WifiTxVector
 MacLow::GetAckTxVector (Mac48Address to, WifiMode dataTxMode) const
 {
-  NS_ASSERT (!to.IsGroup ());
-  WifiMode ackMode = GetControlAnswerMode (dataTxMode);
-  WifiTxVector v;
-  v.SetMode (ackMode);
-  v.SetPreambleType (GetPreambleForTransmission (ackMode.GetModulationClass (), m_stationManager->GetShortPreambleEnabled (), m_stationManager->UseGreenfieldForDestination (to)));
-  v.SetTxPowerLevel (m_stationManager->GetDefaultTxPowerLevel ());
-  v.SetChannelWidth (GetChannelWidthForTransmission (ackMode, m_phy->GetChannelWidth ()));
-   uint16_t ackTxGuardInterval = ConvertGuardIntervalToNanoSeconds (ackMode, m_phy->GetShortGuardInterval (), m_phy->GetGuardInterval ());
-  v.SetGuardInterval (ackTxGuardInterval);
-  v.SetNss (1);
-  return v;
+  return m_stationManager->GetAckTxVector (to, dataTxMode);
 }
 
 WifiTxVector
 MacLow::GetBlockAckTxVector (Mac48Address to, WifiMode dataTxMode) const
 {
-  NS_ASSERT (!to.IsGroup ());
-  WifiMode blockAckMode = GetControlAnswerMode (dataTxMode);
-  WifiTxVector v;
-  v.SetMode (blockAckMode);
-  v.SetPreambleType (GetPreambleForTransmission (blockAckMode.GetModulationClass (), m_stationManager->GetShortPreambleEnabled (), m_stationManager->UseGreenfieldForDestination (to)));
-  v.SetTxPowerLevel (m_stationManager->GetDefaultTxPowerLevel ());
-  v.SetChannelWidth (GetChannelWidthForTransmission (blockAckMode, m_phy->GetChannelWidth ()));
-uint16_t blockAckTxGuardInterval = ConvertGuardIntervalToNanoSeconds (blockAckMode, m_phy->GetShortGuardInterval (), m_phy->GetGuardInterval ());
-  v.SetGuardInterval (blockAckTxGuardInterval);
-  v.SetNss (1);
-  return v;
+  return m_stationManager->GetBlockAckTxVector (to, dataTxMode);
 }
 
 WifiTxVector
@@ -1415,47 +1183,31 @@ MacLow::CalculateOverallTxTime (Ptr<const Packet> packet,
                                 const MacLowTransmissionParameters& params,
                                 uint32_t fragmentSize) const
 {
-  Ptr<const WifiMacQueueItem> item = Create<const WifiMacQueueItem> (packet, *hdr);
-  Time txTime = CalculateOverheadTxTime (item, params);
+  Time txTime = Seconds (0);
+  if (params.MustSendRts ())
+    {
+      WifiTxVector rtsTxVector = GetRtsTxVector (packet, hdr);
+      txTime += m_phy->CalculateTxDuration (GetRtsSize (), rtsTxVector, m_phy->GetFrequency ());
+      txTime += GetCtsDuration (hdr->GetAddr1 (), rtsTxVector);
+      txTime += Time (GetSifs () * 2);
+    }
+  WifiTxVector dataTxVector = GetDataTxVector (packet, hdr);
   uint32_t dataSize;
   if (fragmentSize > 0)
     {
       Ptr<const Packet> fragment = Create<Packet> (fragmentSize);
-      dataSize = GetSize (fragment, hdr, m_currentPacket && m_currentPacket->IsAggregate ());
+      dataSize = GetSize (fragment, hdr, m_ampdu);
     }
   else
     {
-      dataSize = GetSize (packet, hdr, m_currentPacket && m_currentPacket->IsAggregate ());
+      dataSize = GetSize (packet, hdr, m_ampdu);
     }
-  txTime += m_phy->CalculateTxDuration (dataSize, GetDataTxVector (item), m_phy->GetFrequency ());
-  return txTime;
-}
-
-Time
-MacLow::CalculateOverheadTxTime (Ptr<const WifiMacQueueItem> item,
-                                 const MacLowTransmissionParameters& params) const
-{
-  Time txTime = Seconds (0);
-  if (params.MustSendRts ())
-    {
-      WifiTxVector rtsTxVector = GetRtsTxVector (item);
-      txTime += m_phy->CalculateTxDuration (GetRtsSize (), rtsTxVector, m_phy->GetFrequency ());
-      txTime += GetCtsDuration (item->GetHeader ().GetAddr1 (), rtsTxVector);
-      txTime += Time (GetSifs () * 2);
-    }
+  txTime += m_phy->CalculateTxDuration (dataSize, dataTxVector, m_phy->GetFrequency ());
+  txTime += GetSifs ();
   if (params.MustWaitNormalAck ())
     {
-      txTime += GetSifs ();
-      txTime += GetAckDuration (item->GetHeader ().GetAddr1 (), GetDataTxVector (item));
+      txTime += GetAckDuration (hdr->GetAddr1 (), dataTxVector);
     }
-  else if (params.MustWaitBlockAck ())
-    {
-      txTime += GetSifs ();
-      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (item->GetHeader ().GetAddr2 (),
-                                                              GetDataTxVector (item).GetMode ());
-      txTime += GetBlockAckDuration (blockAckReqTxVector, params.GetBlockAckType ());
-    }
-
   return txTime;
 }
 
@@ -1467,7 +1219,7 @@ MacLow::CalculateTransmissionTime (Ptr<const Packet> packet,
   Time txTime = CalculateOverallTxTime (packet, hdr, params);
   if (params.HasNextPacket ())
     {
-      WifiTxVector dataTxVector = GetDataTxVector (Create<const WifiMacQueueItem> (packet, *hdr));
+      WifiTxVector dataTxVector = GetDataTxVector (packet, hdr);
       txTime += GetSifs ();
       txTime += m_phy->CalculateTxDuration (params.GetNextPacketSize (), dataTxVector, m_phy->GetFrequency ());
     }
@@ -1507,7 +1259,7 @@ MacLow::NotifyNav (Ptr<const Packet> packet, const WifiMacHeader &hdr)
            */
           WifiMacHeader cts;
           cts.SetType (WIFI_MAC_CTL_CTS);
-          WifiTxVector txVector = GetRtsTxVector (Create<const WifiMacQueueItem> (packet, hdr));
+          WifiTxVector txVector = GetRtsTxVector (packet, &hdr);
           Time navCounterResetCtsMissedDelay =
             m_phy->CalculateTxDuration (cts.GetSerializedSize (), txVector, m_phy->GetFrequency ()) +
             Time (2 * GetSifs ()) + Time (2 * GetSlotTime ());
@@ -1567,7 +1319,7 @@ MacLow::NotifyAckTimeoutStartNow (Time duration)
 }
 
 void
-MacLow::NotifyAckTimeoutResetNow (void)
+MacLow::NotifyAckTimeoutResetNow ()
 {
   for (ChannelAccessManagersCI i = m_channelAccessManagers.begin (); i != m_channelAccessManagers.end (); i++)
     {
@@ -1585,7 +1337,7 @@ MacLow::NotifyCtsTimeoutStartNow (Time duration)
 }
 
 void
-MacLow::NotifyCtsTimeoutResetNow (void)
+MacLow::NotifyCtsTimeoutResetNow ()
 {
   for (ChannelAccessManagersCI i = m_channelAccessManagers.begin (); i != m_channelAccessManagers.end (); i++)
     {
@@ -1594,28 +1346,23 @@ MacLow::NotifyCtsTimeoutResetNow (void)
 }
 
 void
-MacLow::ForwardDown (Ptr<const WifiPsdu> psdu, WifiTxVector txVector)
+MacLow::ForwardDown (Ptr<const Packet> packet, const WifiMacHeader* hdr, WifiTxVector txVector)
 {
-  NS_LOG_FUNCTION (this << psdu << txVector);
-
-  NS_ASSERT (psdu->GetNMpdus ());
-  const WifiMacHeader& hdr = (*psdu->begin ())->GetHeader ();
-
-  NS_LOG_DEBUG ("send " << hdr.GetTypeString () <<
-                ", to=" << hdr.GetAddr1 () <<
-                ", size=" << psdu->GetSize () <<
+  NS_LOG_FUNCTION (this << packet << hdr << txVector);
+  NS_LOG_DEBUG ("send " << hdr->GetTypeString () <<
+                ", to=" << hdr->GetAddr1 () <<
+                ", size=" << packet->GetSize () <<
                 ", mode=" << txVector.GetMode  () <<
                 ", preamble=" << txVector.GetPreambleType () <<
-                ", duration=" << hdr.GetDuration () <<
-                ", seq=0x" << std::hex << hdr.GetSequenceControl () << std::dec);
-
-  if (!psdu->IsAggregate ())
+                ", duration=" << hdr->GetDuration () <<
+                ", seq=0x" << std::hex << m_currentHdr.GetSequenceControl () << std::dec);
+  if (!m_ampdu || hdr->IsAck () || hdr->IsRts () || hdr->IsCts () || hdr->IsBlockAck () || hdr->IsMgt ())
     {
-      if (hdr.IsCfPoll () && m_stationManager->GetPcfSupported ())
+      if (hdr->IsCfPoll () && m_stationManager->HasPcfSupported ())
         {
-          Simulator::Schedule (GetPifs () + m_phy->CalculateTxDuration (psdu->GetSize (), txVector, m_phy->GetFrequency ()), &MacLow::CfPollTimeout, this);
+          Simulator::Schedule (GetPifs () + m_phy->CalculateTxDuration (packet->GetSize (), txVector, m_phy->GetFrequency ()), &MacLow::CfPollTimeout, this);
         }
-      if (hdr.IsBeacon () && m_stationManager->GetPcfSupported ())
+      if (hdr->IsBeacon () && m_stationManager->HasPcfSupported ())
         {
           if (Simulator::Now () > m_lastBeacon + m_beaconInterval)
             {
@@ -1623,44 +1370,114 @@ MacLow::ForwardDown (Ptr<const WifiPsdu> psdu, WifiTxVector txVector)
             }
           m_lastBeacon = Simulator::Now ();
         }
-      else if (hdr.IsCfEnd () && m_stationManager->GetPcfSupported ())
+      else if (hdr->IsCfEnd () && m_stationManager->HasPcfSupported ())
         {
           m_cfpStart = NanoSeconds (0);
           m_cfpForeshortening = NanoSeconds (0);
           m_cfAckInfo.appendCfAck = false;
           m_cfAckInfo.expectCfAck = false;
         }
-      else if (IsCfPeriod () && hdr.HasData ())
+      else if (IsCfPeriod () && hdr->HasData ())
         {
           m_cfAckInfo.expectCfAck = true;
         }
-      NS_LOG_DEBUG ("Sending non aggregate MPDU");
+      m_phy->SendPacket (packet, txVector);
     }
-  else   // S-MPDU or A-MPDU
+  else
     {
-      txVector.SetAggregation (true);
-      if (psdu->IsSingle ())
+      Ptr<Packet> newPacket;
+      Ptr <WifiMacQueueItem> dequeuedItem;
+      WifiMacHeader newHdr;
+      uint32_t queueSize = m_aggregateQueue[GetTid (packet, *hdr)]->GetNPackets ();
+      bool singleMpdu = false;
+      bool last = false;
+      MpduType mpdutype = NORMAL_MPDU;
+
+      uint8_t tid = GetTid (packet, *hdr);
+      AcIndex ac = QosUtilsMapTidToAc (tid);
+      std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+
+      if (queueSize == 1)
         {
-          NS_LOG_DEBUG ("Sending S-MPDU");
-        }
-      else
-        {
-          NS_LOG_DEBUG ("Sending A-MPDU");
+          singleMpdu = true;
         }
 
-      if (psdu->GetNMpdus () > 1)
+      //Add packet tag
+      AmpduTag ampdutag;
+      Time delay = Seconds (0);
+      Time remainingAmpduDuration = m_phy->CalculateTxDuration (packet->GetSize (), txVector, m_phy->GetFrequency ());
+      if (queueSize > 1 || singleMpdu)
         {
-          for (auto& mpdu : *PeekPointer (psdu))
+          txVector.SetAggregation (true);
+        }
+      for (; queueSize > 0; queueSize--)
+        {
+          dequeuedItem = m_aggregateQueue[GetTid (packet, *hdr)]->Dequeue ();
+          newHdr = dequeuedItem->GetHeader ();
+          newPacket = dequeuedItem->GetPacket ()->Copy ();
+          newHdr.SetDuration (hdr->GetDuration ());
+          newPacket->AddHeader (newHdr);
+          AddWifiMacTrailer (newPacket);
+          if (queueSize == 1)
             {
-              if (mpdu->GetHeader ().IsQosData ())
+              last = true;
+              mpdutype = LAST_MPDU_IN_AGGREGATE;
+            }
+
+          edcaIt->second->GetMpduAggregator ()->AddHeaderAndPad (newPacket, last, singleMpdu);
+
+          if (delay.IsZero ())
+            {
+              if (!singleMpdu)
                 {
-                  auto edcaIt = m_edca.find (QosUtilsMapTidToAc (mpdu->GetHeader ().GetQosTid ()));
-                  edcaIt->second->CompleteMpduTx (mpdu);
+                  NS_LOG_DEBUG ("Sending MPDU as part of A-MPDU");
+                  mpdutype = MPDU_IN_AGGREGATE;
+                }
+              else
+                {
+                  NS_LOG_DEBUG ("Sending S-MPDU");
+                  mpdutype = NORMAL_MPDU;
                 }
             }
+
+          Time mpduDuration = m_phy->CalculateTxDuration (newPacket->GetSize (), txVector, m_phy->GetFrequency (), mpdutype, 0);
+          remainingAmpduDuration -= mpduDuration;
+
+          ampdutag.SetRemainingNbOfMpdus (static_cast<uint8_t> (queueSize - 1));
+          if (queueSize > 1)
+            {
+              ampdutag.SetRemainingAmpduDuration (remainingAmpduDuration);
+            }
+          else
+            {
+              ampdutag.SetRemainingAmpduDuration (NanoSeconds (0));
+            }
+          newPacket->AddPacketTag (ampdutag);
+
+          if (delay.IsZero ())
+            {
+              m_phy->SendPacket (newPacket, txVector, mpdutype);
+            }
+          else
+            {
+              Simulator::Schedule (delay, &MacLow::SendMpdu, this, newPacket, txVector, mpdutype);
+            }
+          if (queueSize > 1)
+            {
+              NS_ASSERT (remainingAmpduDuration > 0);
+              delay = delay + mpduDuration;
+            }
+
+          txVector.SetPreambleType (WIFI_PREAMBLE_NONE);
         }
     }
-  m_phy->SendPacket (psdu->GetPacket (), txVector);
+}
+
+void
+MacLow::SendMpdu (Ptr<const Packet> packet, WifiTxVector txVector, MpduType mpdutype)
+{
+  NS_LOG_DEBUG ("Sending MPDU as part of A-MPDU");
+  m_phy->SendPacket (packet, txVector, mpdutype);
 }
 
 void
@@ -1689,18 +1506,11 @@ MacLow::CtsTimeout (void)
   /// \todo should check that there was no rx start before now.
   /// we should restart a new cts timeout now until the expected
   /// end of rx if there was a rx start before now.
-  m_stationManager->ReportRtsFailed (m_currentPacket->GetAddr1 (), &m_currentPacket->GetHeader (0));
-
-  Ptr<QosTxop> qosTxop = DynamicCast<QosTxop> (m_currentTxop);
-  if (qosTxop != 0)
-    {
-      qosTxop->NotifyMissedCts (std::list<Ptr<WifiMacQueueItem>> (m_currentPacket->begin (), m_currentPacket->end ()));
-    }
-  else
-    {
-      m_currentTxop->MissedCts ();
-    }
+  m_stationManager->ReportRtsFailed (m_currentHdr.GetAddr1 (), &m_currentHdr);
+  Ptr<Txop> txop = m_currentTxop;
   m_currentTxop = 0;
+  m_ampdu = false;
+  txop->MissedCts ();
 }
 
 void
@@ -1711,8 +1521,15 @@ MacLow::NormalAckTimeout (void)
   /// \todo should check that there was no rx start before now.
   /// we should restart a new ack timeout now until the expected
   /// end of rx if there was a rx start before now.
+  m_stationManager->ReportDataFailed (m_currentHdr.GetAddr1 (), &m_currentHdr,
+                                      m_currentPacket->GetSize ());
   Ptr<Txop> txop = m_currentTxop;
   m_currentTxop = 0;
+  m_ampdu = false;
+  if (m_currentHdr.IsQosData ())
+    {
+      FlushAggregateQueue (GetTid (m_currentPacket, m_currentHdr));
+    }
   txop->MissedAck ();
 }
 
@@ -1723,7 +1540,12 @@ MacLow::BlockAckTimeout (void)
   NS_LOG_DEBUG ("block ack timeout");
   Ptr<Txop> txop = m_currentTxop;
   m_currentTxop = 0;
-  txop->MissedBlockAck (m_currentPacket->GetNMpdus ());
+  m_ampdu = false;
+  uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
+  AmpduTag ampdu;
+  m_currentPacket->RemovePacketTag (ampdu);
+  txop->MissedBlockAck (ampdu.GetRemainingNbOfMpdus () + 1);
+  FlushAggregateQueue (tid);
 }
 
 void
@@ -1737,25 +1559,30 @@ MacLow::SendRtsForPacket (void)
   rts.SetDsNotTo ();
   rts.SetNoRetry ();
   rts.SetNoMoreFragments ();
-  rts.SetAddr1 (m_currentPacket->GetAddr1 ());
+  rts.SetAddr1 (m_currentHdr.GetAddr1 ());
   rts.SetAddr2 (m_self);
-  WifiTxVector rtsTxVector = GetRtsTxVector (*m_currentPacket->begin ());
+  WifiTxVector rtsTxVector = GetRtsTxVector (m_currentPacket, &m_currentHdr);
   Time duration = Seconds (0);
 
   duration += GetSifs ();
-  duration += GetCtsDuration (m_currentPacket->GetAddr1 (), rtsTxVector);
+  duration += GetCtsDuration (m_currentHdr.GetAddr1 (), rtsTxVector);
   duration += GetSifs ();
-  duration += m_phy->CalculateTxDuration (m_currentPacket->GetSize (),
+  duration += m_phy->CalculateTxDuration (GetSize (m_currentPacket, &m_currentHdr, m_ampdu),
                                           m_currentTxVector, m_phy->GetFrequency ());
   duration += GetSifs ();
-  if (m_txParams.MustWaitBlockAck ())
+  if (m_txParams.MustWaitBasicBlockAck ())
     {
-      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (), m_currentTxVector.GetMode ());
-      duration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      duration += GetBlockAckDuration (blockAckReqTxVector, BASIC_BLOCK_ACK);
+    }
+  else if (m_txParams.MustWaitCompressedBlockAck ())
+    {
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      duration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
     }
   else if (m_txParams.MustWaitNormalAck ())
     {
-      duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+      duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
     }
   if (m_txParams.HasNextPacket ())
     {
@@ -1764,7 +1591,7 @@ MacLow::SendRtsForPacket (void)
       if (m_txParams.MustWaitNormalAck ())
         {
           duration += GetSifs ();
-          duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+          duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
         }
     }
   rts.SetDuration (duration);
@@ -1776,13 +1603,17 @@ MacLow::SendRtsForPacket (void)
   NotifyCtsTimeoutStartNow (timerDelay);
   m_ctsTimeoutEvent = Simulator::Schedule (timerDelay, &MacLow::CtsTimeout, this);
 
-  ForwardDown (Create<const WifiPsdu> (Create<Packet> (), rts), rtsTxVector);
+  Ptr<Packet> packet = Create<Packet> ();
+  packet->AddHeader (rts);
+  AddWifiMacTrailer (packet);
+
+  ForwardDown (packet, &rts, rtsTxVector);
 }
 
 void
 MacLow::StartDataTxTimers (WifiTxVector dataTxVector)
 {
-  Time txDuration = m_phy->CalculateTxDuration (m_currentPacket->GetSize (), dataTxVector, m_phy->GetFrequency ());
+  Time txDuration = m_phy->CalculateTxDuration (GetSize (m_currentPacket, &m_currentHdr, m_ampdu), dataTxVector, m_phy->GetFrequency ());
   if (m_txParams.MustWaitNormalAck () && !IsCfPeriod ())
     {
       Time timerDelay = txDuration + GetAckTimeout ();
@@ -1790,16 +1621,14 @@ MacLow::StartDataTxTimers (WifiTxVector dataTxVector)
       NotifyAckTimeoutStartNow (timerDelay);
       m_normalAckTimeoutEvent = Simulator::Schedule (timerDelay, &MacLow::NormalAckTimeout, this);
     }
-  else if (m_txParams.MustWaitBlockAck () && m_txParams.GetBlockAckType () == BlockAckType::BASIC_BLOCK_ACK)
+  else if (m_txParams.MustWaitBasicBlockAck ())
     {
       Time timerDelay = txDuration + GetBasicBlockAckTimeout ();
       NS_ASSERT (m_blockAckTimeoutEvent.IsExpired ());
       NotifyAckTimeoutStartNow (timerDelay);
       m_blockAckTimeoutEvent = Simulator::Schedule (timerDelay, &MacLow::BlockAckTimeout, this);
     }
-  else if (m_txParams.MustWaitBlockAck () &&
-           (m_txParams.GetBlockAckType () == BlockAckType::COMPRESSED_BLOCK_ACK
-            || m_txParams.GetBlockAckType () == BlockAckType::EXTENDED_COMPRESSED_BLOCK_ACK))
+  else if (m_txParams.MustWaitCompressedBlockAck ())
     {
       Time timerDelay = txDuration + GetCompressedBlockAckTimeout ();
       NS_ASSERT (m_blockAckTimeoutEvent.IsExpired ());
@@ -1820,9 +1649,8 @@ MacLow::StartDataTxTimers (WifiTxVector dataTxVector)
         }
       m_waitIfsEvent = Simulator::Schedule (delay, &MacLow::WaitIfsAfterEndTxFragment, this);
     }
-  else if (m_currentPacket->GetHeader (0).IsQosData () && m_currentTxop->IsQosTxop () &&
-           m_currentTxop->GetTxopLimit ().IsStrictlyPositive () && m_currentTxop->GetTxopRemaining () > GetSifs ())
-   {
+  else if (m_currentHdr.IsQosData () && m_currentHdr.IsQosBlockAck () && m_currentTxop->HasTxop ())
+    {
       Time delay = txDuration;
       if (m_stationManager->GetRifsPermitted ())
         {
@@ -1851,17 +1679,22 @@ MacLow::SendDataPacket (void)
   if (!IsCfPeriod ())
     {
       Time duration = Seconds (0);
-      if (m_txParams.MustWaitBlockAck ())
+      if (m_txParams.MustWaitBasicBlockAck ())
         {
           duration += GetSifs ();
-          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (),
-                                                                  m_currentTxVector.GetMode ());
-          duration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+          duration += GetBlockAckDuration (blockAckReqTxVector, BASIC_BLOCK_ACK);
+        }
+      else if (m_txParams.MustWaitCompressedBlockAck ())
+        {
+          duration += GetSifs ();
+          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+          duration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
         }
       else if (m_txParams.MustWaitNormalAck ())
         {
           duration += GetSifs ();
-          duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+          duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
         }
       if (m_txParams.HasNextPacket ())
         {
@@ -1878,43 +1711,48 @@ MacLow::SendDataPacket (void)
           if (m_txParams.MustWaitNormalAck ())
             {
               duration += GetSifs ();
-              duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+              duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
             }
         }
-      m_currentPacket->SetDuration (duration);
+      m_currentHdr.SetDuration (duration);
     }
   else
     {
-      if (m_currentPacket->GetHeader (0).IsCfEnd ())
+      if (m_currentHdr.IsCfEnd ())
         {
-          m_currentPacket->GetHeader (0).SetRawDuration (0);
+          m_currentHdr.SetRawDuration (0);
         }
       else
         {
-          m_currentPacket->GetHeader (0).SetRawDuration (32768);
+          m_currentHdr.SetRawDuration (32768);
         }
     }
 
-  if (!m_currentPacket->IsAggregate ())
+  Ptr <Packet> packet = m_currentPacket->Copy ();
+  if (m_ampdu)
+    {
+      NS_ASSERT (m_currentHdr.IsQosData ());
+    }
+  else
     {
       if (m_cfAckInfo.appendCfAck)
         {
-          switch (m_currentPacket->GetHeader (0).GetType ())
+          switch (m_currentHdr.GetType ())
             {
             case WIFI_MAC_DATA:
-              m_currentPacket->GetHeader (0).SetType (WIFI_MAC_DATA_CFACK, false);
+              m_currentHdr.SetType (WIFI_MAC_DATA_CFACK, false);
               break;
             case WIFI_MAC_DATA_CFPOLL:
-              m_currentPacket->GetHeader (0).SetType (WIFI_MAC_DATA_CFACK_CFPOLL, false);
+              m_currentHdr.SetType (WIFI_MAC_DATA_CFACK_CFPOLL, false);
               break;
             case WIFI_MAC_DATA_NULL:
-              m_currentPacket->GetHeader (0).SetType (WIFI_MAC_DATA_NULL_CFACK, false);
+              m_currentHdr.SetType (WIFI_MAC_DATA_NULL_CFACK, false);
               break;
             case WIFI_MAC_DATA_NULL_CFPOLL:
-              m_currentPacket->GetHeader (0).SetType (WIFI_MAC_DATA_NULL_CFACK_CFPOLL, false);
+              m_currentHdr.SetType (WIFI_MAC_DATA_NULL_CFACK_CFPOLL, false);
               break;
             case WIFI_MAC_CTL_END:
-              m_currentPacket->GetHeader (0).SetType (WIFI_MAC_CTL_END_ACK, false);
+              m_currentHdr.SetType (WIFI_MAC_CTL_END_ACK, false);
               break;
             default:
               NS_ASSERT (false);
@@ -1925,10 +1763,10 @@ MacLow::SendDataPacket (void)
           //the rate chosen to transmit the frame must be supported by both the addressed recipient STA and the STA to which the ACK is intended.
           //This ideally requires the rate manager to handle this case, but this requires to update all rate manager classes.
           //Instead, we simply fetch two TxVector and we select the one with the lowest datarate.
-          //This should be later changed, at the latest once HCCA is implemented for HT/VHT/HE stations.
-          WifiMacHeader tmpHdr = m_currentPacket->GetHeader (0);
+          //This should be later changed, at the latest once HCCA is implemented for HT/VHT stations.
+          WifiMacHeader tmpHdr = m_currentHdr;
           tmpHdr.SetAddr1 (m_cfAckInfo.address);
-          WifiTxVector tmpTxVector = GetDataTxVector (Create<const WifiMacQueueItem> (m_currentPacket->GetPayload (0), tmpHdr));
+          WifiTxVector tmpTxVector = GetDataTxVector (packet, &tmpHdr);
           if (tmpTxVector.GetMode ().GetDataRate (tmpTxVector) < m_currentTxVector.GetMode ().GetDataRate (m_currentTxVector))
             {
               m_currentTxVector = tmpTxVector;
@@ -1936,8 +1774,10 @@ MacLow::SendDataPacket (void)
           m_cfAckInfo.appendCfAck = false;
           m_cfAckInfo.address = Mac48Address ();
         }
+      packet->AddHeader (m_currentHdr);
+      AddWifiMacTrailer (packet);
     }
-  ForwardDown (m_currentPacket, m_currentTxVector);
+  ForwardDown (packet, &m_currentHdr, m_currentTxVector);
 }
 
 bool
@@ -1957,46 +1797,54 @@ MacLow::SendCtsToSelf (void)
   cts.SetNoRetry ();
   cts.SetAddr1 (m_self);
 
-  WifiTxVector ctsTxVector = GetRtsTxVector (*m_currentPacket->begin ());
+  WifiTxVector ctsTxVector = GetRtsTxVector (m_currentPacket, &m_currentHdr);
   Time duration = Seconds (0);
 
   duration += GetSifs ();
-  duration += m_phy->CalculateTxDuration (m_currentPacket->GetSize (),
+  duration += m_phy->CalculateTxDuration (GetSize (m_currentPacket, &m_currentHdr, m_ampdu),
                                           m_currentTxVector, m_phy->GetFrequency ());
-  if (m_txParams.MustWaitBlockAck ())
+  if (m_txParams.MustWaitBasicBlockAck ())
     {
       duration += GetSifs ();
-      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (),
-                                                              m_currentTxVector.GetMode ());
-      duration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      duration += GetBlockAckDuration (blockAckReqTxVector, BASIC_BLOCK_ACK);
+    }
+  else if (m_txParams.MustWaitCompressedBlockAck ())
+    {
+      duration += GetSifs ();
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      duration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
     }
   else if (m_txParams.MustWaitNormalAck ())
     {
       duration += GetSifs ();
-      duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+      duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
     }
   if (m_txParams.HasNextPacket ())
     {
       duration += GetSifs ();
       duration += m_phy->CalculateTxDuration (m_txParams.GetNextPacketSize (),
                                               m_currentTxVector, m_phy->GetFrequency ());
-      if (m_txParams.MustWaitBlockAck ())
+      if (m_txParams.MustWaitCompressedBlockAck ())
         {
           duration += GetSifs ();
-          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (),
-                                                                  m_currentTxVector.GetMode ());
-          duration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+          duration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
         }
       else if (m_txParams.MustWaitNormalAck ())
         {
           duration += GetSifs ();
-          duration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+          duration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
         }
     }
 
   cts.SetDuration (duration);
 
-  ForwardDown (Create<const WifiPsdu> (Create<Packet> (), cts), ctsTxVector);
+  Ptr<Packet> packet = Create<Packet> ();
+  packet->AddHeader (cts);
+  AddWifiMacTrailer (packet);
+
+  ForwardDown (packet, &cts, ctsTxVector);
 
   Time txDuration = m_phy->CalculateTxDuration (GetCtsSize (), ctsTxVector, m_phy->GetFrequency ());
   txDuration += GetSifs ();
@@ -2028,13 +1876,15 @@ MacLow::SendCtsAfterRts (Mac48Address source, Time duration, WifiTxVector rtsTxV
   cts.SetDuration (duration);
 
   Ptr<Packet> packet = Create<Packet> ();
+  packet->AddHeader (cts);
+  AddWifiMacTrailer (packet);
 
   SnrTag tag;
   tag.Set (rtsSnr);
   packet->AddPacketTag (tag);
 
   //CTS should always use non-HT PPDU (HT PPDU cases not supported yet)
-  ForwardDown (Create<const WifiPsdu> (packet, cts), ctsTxVector);
+  ForwardDown (packet, &cts, ctsTxVector);
 }
 
 void
@@ -2046,18 +1896,38 @@ MacLow::SendDataAfterCts (Time duration)
    */
   NS_ASSERT (m_currentPacket != 0);
 
+  if (m_currentHdr.IsQosData ())
+    {
+      uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
+      if (!m_aggregateQueue[GetTid (m_currentPacket, m_currentHdr)]->IsEmpty ())
+        {
+          for (std::vector<Item>::size_type i = 0; i != m_txPackets[tid].size (); i++)
+            {
+              AcIndex ac = QosUtilsMapTidToAc (tid);
+              std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+              edcaIt->second->CompleteMpduTx (m_txPackets[tid].at (i).packet, m_txPackets[tid].at (i).hdr, m_txPackets[tid].at (i).timestamp);
+            }
+        }
+    }
+
   StartDataTxTimers (m_currentTxVector);
   Time newDuration = Seconds (0);
-  if (m_txParams.MustWaitBlockAck ())
+  if (m_txParams.MustWaitBasicBlockAck ())
     {
       newDuration += GetSifs ();
-      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (), m_currentTxVector.GetMode ());
-      newDuration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      newDuration += GetBlockAckDuration (blockAckReqTxVector, BASIC_BLOCK_ACK);
+    }
+  else if (m_txParams.MustWaitCompressedBlockAck ())
+    {
+      newDuration += GetSifs ();
+      WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+      newDuration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
     }
   else if (m_txParams.MustWaitNormalAck ())
     {
       newDuration += GetSifs ();
-      newDuration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+      newDuration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
     }
   if (m_txParams.HasNextPacket ())
     {
@@ -2070,27 +1940,37 @@ MacLow::SendDataAfterCts (Time duration)
           newDuration += GetSifs ();
         }
       newDuration += m_phy->CalculateTxDuration (m_txParams.GetNextPacketSize (), m_currentTxVector, m_phy->GetFrequency ());
-      if (m_txParams.MustWaitBlockAck ())
+      if (m_txParams.MustWaitCompressedBlockAck ())
         {
           newDuration += GetSifs ();
-          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentPacket->GetAddr2 (), m_currentTxVector.GetMode ());
-          newDuration += GetBlockAckDuration (blockAckReqTxVector, m_txParams.GetBlockAckType ());
+          WifiTxVector blockAckReqTxVector = GetBlockAckTxVector (m_currentHdr.GetAddr2 (), m_currentTxVector.GetMode ());
+          newDuration += GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
         }
       else if (m_txParams.MustWaitNormalAck ())
         {
           newDuration += GetSifs ();
-          newDuration += GetAckDuration (m_currentPacket->GetAddr1 (), m_currentTxVector);
+          newDuration += GetAckDuration (m_currentHdr.GetAddr1 (), m_currentTxVector);
         }
     }
 
-  Time txDuration = m_phy->CalculateTxDuration (m_currentPacket->GetSize (), m_currentTxVector, m_phy->GetFrequency ());
+  Time txDuration = m_phy->CalculateTxDuration (GetSize (m_currentPacket, &m_currentHdr, m_ampdu), m_currentTxVector, m_phy->GetFrequency ());
   duration -= txDuration;
   duration -= GetSifs ();
 
   duration = std::max (duration, newDuration);
   NS_ASSERT (duration.IsPositive ());
-  m_currentPacket->SetDuration (duration);
-  ForwardDown (m_currentPacket, m_currentTxVector);
+  m_currentHdr.SetDuration (duration);
+  Ptr <Packet> packet = m_currentPacket->Copy ();
+  if (m_ampdu)
+    {
+      NS_ASSERT (m_currentHdr.IsQosData ());
+    }
+  else
+    {
+      packet->AddHeader (m_currentHdr);
+      AddWifiMacTrailer (packet);
+    }
+  ForwardDown (packet, &m_currentHdr, m_currentTxVector);
 }
 
 void
@@ -2111,7 +1991,7 @@ void
 MacLow::EndTxNoAck (void)
 {
   NS_LOG_FUNCTION (this);
-  if (m_currentPacket->GetHeader (0).IsBeacon () && m_stationManager->GetPcfSupported ())
+  if (m_currentHdr.IsBeacon () && m_stationManager->HasPcfSupported ())
     {
       m_cfpStart = Simulator::Now ();
     }
@@ -2147,21 +2027,23 @@ MacLow::SendAckAfterData (Mac48Address source, Time duration, WifiMode dataTxMod
   ack.SetDuration (duration);
 
   Ptr<Packet> packet = Create<Packet> ();
+  packet->AddHeader (ack);
+  AddWifiMacTrailer (packet);
 
   SnrTag tag;
   tag.Set (dataSnr);
   packet->AddPacketTag (tag);
 
   //ACK should always use non-HT PPDU (HT PPDU cases not supported yet)
-  ForwardDown (Create<const WifiPsdu> (packet, ack), ackTxVector);
+  ForwardDown (packet, &ack, ackTxVector);
 }
 
 bool
 MacLow::ReceiveMpdu (Ptr<Packet> packet, WifiMacHeader hdr)
 {
-  if (m_stationManager->GetHtSupported ()
-      || m_stationManager->GetVhtSupported ()
-      || m_stationManager->GetHeSupported ())
+  if (m_stationManager->HasHtSupported ()
+      || m_stationManager->HasVhtSupported ()
+      || m_stationManager->HasHeSupported ())
     {
       Mac48Address originator = hdr.GetAddr2 ();
       uint8_t tid = 0;
@@ -2185,7 +2067,7 @@ MacLow::ReceiveMpdu (Ptr<Packet> packet, WifiMacHeader hdr)
                       (*it).second.first.SetWinEnd (seqNumber);
                       int16_t winEnd = (*it).second.first.GetWinEnd ();
                       int16_t bufferSize = (*it).second.first.GetBufferSize ();
-                      uint16_t sum = (static_cast<uint16_t> (winEnd - bufferSize + 1 + 4096)) % 4096;
+                      uint16_t sum = (static_cast<uint16_t> (std::abs (winEnd - bufferSize + 1))) % 4096;
                       (*it).second.first.SetStartingSequence (sum);
                       RxCompleteBufferedPacketsWithSmallerSequence ((*it).second.first.GetStartingSequenceControl (), originator, tid);
                     }
@@ -2379,7 +2261,6 @@ MacLow::RxCompleteBufferedPacketsUntilFirstLost (Mac48Address originator, uint8_
       (*it).second.second.erase ((*it).second.second.begin (), lastComplete);
     }
 }
-
 void
 MacLow::SendBlockAckResponse (const CtrlBAckResponseHeader* blockAck, Mac48Address originator, bool immediate,
                               Time duration, WifiMode blockAckReqTxMode, double rxSnr)
@@ -2403,7 +2284,18 @@ MacLow::SendBlockAckResponse (const CtrlBAckResponseHeader* blockAck, Mac48Addre
     {
       m_txParams.DisableAck ();
       duration -= GetSifs ();
-      duration -= GetBlockAckDuration (blockAckReqTxVector, blockAck->GetType ());
+      if (blockAck->IsBasic ())
+        {
+          duration -= GetBlockAckDuration (blockAckReqTxVector, BASIC_BLOCK_ACK);
+        }
+      else if (blockAck->IsCompressed ())
+        {
+          duration -= GetBlockAckDuration (blockAckReqTxVector, COMPRESSED_BLOCK_ACK);
+        }
+      else if (blockAck->IsMultiTid ())
+        {
+          NS_FATAL_ERROR ("Multi-tid block ack is not supported.");
+        }
     }
   else
     {
@@ -2422,10 +2314,12 @@ MacLow::SendBlockAckResponse (const CtrlBAckResponseHeader* blockAck, Mac48Addre
   hdr.SetDuration (duration);
   //here should be present a control about immediate or delayed block ack
   //for now we assume immediate
+  packet->AddHeader (hdr);
+  AddWifiMacTrailer (packet);
   SnrTag tag;
   tag.Set (rxSnr);
   packet->AddPacketTag (tag);
-  ForwardDown (Create<const WifiPsdu> (packet, hdr), blockAckReqTxVector);
+  ForwardDown (packet, &hdr, blockAckReqTxVector);
 }
 
 void
@@ -2446,20 +2340,11 @@ MacLow::SendBlockAckAfterAmpdu (uint8_t tid, Mac48Address originator, Time durat
       blockAck.SetStartingSequence (seqNumber);
       blockAck.SetTidInfo (tid);
       immediate = (*it).second.first.IsImmediateBlockAck ();
-      if ((*it).second.first.GetBufferSize () > 64)
-        {
-          blockAck.SetType (EXTENDED_COMPRESSED_BLOCK_ACK);
-        }
-      else
-        {
-          blockAck.SetType (COMPRESSED_BLOCK_ACK);
-        }
+      blockAck.SetType (COMPRESSED_BLOCK_ACK);
       NS_LOG_DEBUG ("Got Implicit block Ack Req with seq " << seqNumber);
       (*i).second.FillBlockAckBitmap (&blockAck);
 
-      WifiTxVector blockAckTxVector = GetBlockAckTxVector (originator, blockAckReqTxVector.GetMode ());
-
-      SendBlockAckResponse (&blockAck, originator, immediate, duration, blockAckTxVector.GetMode (), rxSnr);
+      SendBlockAckResponse (&blockAck, originator, immediate, duration, blockAckReqTxVector.GetMode (), rxSnr);
     }
   else
     {
@@ -2492,18 +2377,14 @@ MacLow::SendBlockAckAfterBlockAckRequest (const CtrlBAckRequestHeader reqHdr, Ma
             {
               blockAck.SetType (COMPRESSED_BLOCK_ACK);
             }
-          else if (reqHdr.IsExtendedCompressed ())
-            {
-              blockAck.SetType (EXTENDED_COMPRESSED_BLOCK_ACK);
-            }
           BlockAckCachesI i = m_bAckCaches.find (std::make_pair (originator, tid));
           NS_ASSERT (i != m_bAckCaches.end ());
           (*i).second.FillBlockAckBitmap (&blockAck);
           NS_LOG_DEBUG ("Got block Ack Req with seq " << reqHdr.GetStartingSequence ());
 
-          if (!m_stationManager->GetHtSupported ()
-              && !m_stationManager->GetVhtSupported ()
-              && !m_stationManager->GetHeSupported ())
+          if (!m_stationManager->HasHtSupported ()
+              && !m_stationManager->HasVhtSupported ()
+              && !m_stationManager->HasHeSupported ())
             {
               /* All packets with smaller sequence than starting sequence control must be passed up to Wifimac
                * See 9.10.3 in IEEE 802.11e standard.
@@ -2558,18 +2439,17 @@ MacLow::RegisterEdcaForAc (AcIndex ac, Ptr<QosTxop> edca)
 }
 
 void
-MacLow::DeaggregateAmpduAndReceive (Ptr<Packet> aggregatedPacket, double rxSnr, WifiTxVector txVector, std::vector<bool> statusPerMpdu)
+MacLow::DeaggregateAmpduAndReceive (Ptr<Packet> aggregatedPacket, double rxSnr, WifiTxVector txVector)
 {
   NS_LOG_FUNCTION (this);
+  AmpduTag ampdu;
   bool normalAck = false;
   bool ampduSubframe = false; //flag indicating the packet belongs to an A-MPDU and is not a VHT/HE single MPDU
-  if (txVector.IsAggregation ())
+  if (aggregatedPacket->RemovePacketTag (ampdu))
     {
       ampduSubframe = true;
       MpduAggregator::DeaggregatedMpdus packets = MpduAggregator::Deaggregate (aggregatedPacket);
       MpduAggregator::DeaggregatedMpdusCI n = packets.begin ();
-      auto status = statusPerMpdu.begin ();
-      NS_ABORT_MSG_IF (packets.size () != statusPerMpdu.size (), "Should have one receive status per MPDU");
 
       WifiMacHeader firsthdr;
       (*n).first->PeekHeader (firsthdr);
@@ -2579,71 +2459,63 @@ MacLow::DeaggregateAmpduAndReceive (Ptr<Packet> aggregatedPacket, double rxSnr, 
       if (firsthdr.GetAddr1 () == m_self)
         {
           bool singleMpdu = (*n).second.GetEof ();
-          //Iterate over all MPDUs and notify reception only if status OK
-          for (; n != packets.end (); ++n, ++status)
+          if (singleMpdu)
             {
-              (*n).first->PeekHeader (firsthdr);
-              NS_ABORT_MSG_IF (firsthdr.GetAddr1 () != m_self, "All MPDUs of A-MPDU should have the same destination address");
-              if (*status) //PER and thus CRC check succeeded
-                {
-                  if (singleMpdu)
-                    {
-                      //If the MPDU is sent as a VHT/HE single MPDU (EOF=1 in A-MPDU subframe header), then the responder sends an ACK.
-                      NS_LOG_DEBUG ("Receive S-MPDU");
-                      ampduSubframe = false;
-                    }
-                  else if (!m_sendAckEvent.IsRunning ())
-                    {
-                      m_sendAckEvent = Simulator::Schedule (GetSifs (),
-                                                            &MacLow::SendBlockAckAfterAmpdu, this,
-                                                            firsthdr.GetQosTid (),
-                                                            firsthdr.GetAddr2 (),
-                                                            firsthdr.GetDuration (),
-                                                            txVector, rxSnr);
-                    }
+              //If the MPDU is sent as a VHT/HE single MPDU (EOF=1 in A-MPDU subframe header), then the responder sends an ACK.
+              NS_LOG_DEBUG ("Receive S-MPDU");
+              ampduSubframe = false;
+            }
+          else if (txVector.GetPreambleType () != WIFI_PREAMBLE_NONE || !m_sendAckEvent.IsRunning ())
+            {
+              m_sendAckEvent = Simulator::Schedule (ampdu.GetRemainingAmpduDuration () + GetSifs (),
+                                                    &MacLow::SendBlockAckAfterAmpdu, this,
+                                                    firsthdr.GetQosTid (),
+                                                    firsthdr.GetAddr2 (),
+                                                    firsthdr.GetDuration (),
+                                                    txVector,
+                                                    rxSnr);
+            }
 
-                  if (firsthdr.IsAck () || firsthdr.IsBlockAck () || firsthdr.IsBlockAckReq ())
+          if (firsthdr.IsAck () || firsthdr.IsBlockAck () || firsthdr.IsBlockAckReq ())
+            {
+              ReceiveOk ((*n).first, rxSnr, txVector, ampduSubframe);
+            }
+          else if (firsthdr.IsData () || firsthdr.IsQosData ())
+            {
+              NS_LOG_DEBUG ("Deaggregate packet from " << firsthdr.GetAddr2 () << " with sequence=" << firsthdr.GetSequenceNumber ());
+              ReceiveOk ((*n).first, rxSnr, txVector, ampduSubframe);
+              if (firsthdr.IsQosAck ())
+                {
+                  NS_LOG_DEBUG ("Normal Ack");
+                  normalAck = true;
+                }
+            }
+          else
+            {
+              NS_FATAL_ERROR ("Received A-MPDU with invalid first MPDU type");
+            }
+
+          if (ampdu.GetRemainingNbOfMpdus () == 0 && !singleMpdu)
+            {
+              if (normalAck)
+                {
+                  //send block Ack
+                  if (firsthdr.IsBlockAckReq ())
                     {
-                      ReceiveOk ((*n).first, rxSnr, txVector, ampduSubframe);
+                      NS_FATAL_ERROR ("Sending a BlockAckReq with QosPolicy equal to Normal Ack");
                     }
-                  else if (firsthdr.IsData () || firsthdr.IsQosData ())
+                  uint8_t tid = firsthdr.GetQosTid ();
+                  AgreementsI it = m_bAckAgreements.find (std::make_pair (firsthdr.GetAddr2 (), tid));
+                  if (it != m_bAckAgreements.end ())
                     {
-                      NS_LOG_DEBUG ("Deaggregate packet from " << firsthdr.GetAddr2 () << " with sequence=" << firsthdr.GetSequenceNumber ());
-                      ReceiveOk ((*n).first, rxSnr, txVector, ampduSubframe);
-                      if (firsthdr.IsQosAck ())
-                        {
-                          NS_LOG_DEBUG ("Normal Ack");
-                          normalAck = true;
-                        }
+                      /* See section 11.5.3 in IEEE 802.11 for mean of this timer */
+                      ResetBlockAckInactivityTimerIfNeeded (it->second.first);
+                      NS_LOG_DEBUG ("rx A-MPDU/sendImmediateBlockAck from=" << firsthdr.GetAddr2 ());
+                      NS_ASSERT (m_sendAckEvent.IsRunning ());
                     }
                   else
                     {
-                      NS_FATAL_ERROR ("Received A-MPDU with invalid first MPDU type");
-                    }
-
-                  if (!singleMpdu)
-                    {
-                      if (normalAck)
-                        {
-                          //send block Ack
-                          if (firsthdr.IsBlockAckReq ())
-                            {
-                              NS_FATAL_ERROR ("Sending a BlockAckReq with QosPolicy equal to Normal Ack");
-                            }
-                          uint8_t tid = firsthdr.GetQosTid ();
-                          AgreementsI it = m_bAckAgreements.find (std::make_pair (firsthdr.GetAddr2 (), tid));
-                          if (it != m_bAckAgreements.end ())
-                            {
-                              /* See section 11.5.3 in IEEE 802.11 for mean of this timer */
-                              ResetBlockAckInactivityTimerIfNeeded (it->second.first);
-                              NS_LOG_DEBUG ("rx A-MPDU/sendImmediateBlockAck from=" << firsthdr.GetAddr2 ());
-                              NS_ASSERT (m_sendAckEvent.IsRunning ());
-                            }
-                          else
-                            {
-                              NS_LOG_DEBUG ("There's not a valid agreement for this block ack request.");
-                            }
-                        }
+                      NS_LOG_DEBUG ("There's not a valid agreement for this block ack request.");
                     }
                 }
             }
@@ -2651,8 +2523,436 @@ MacLow::DeaggregateAmpduAndReceive (Ptr<Packet> aggregatedPacket, double rxSnr, 
     }
   else
     {
-      /* Simple MPDU */
       ReceiveOk (aggregatedPacket, rxSnr, txVector, ampduSubframe);
+    }
+}
+
+bool
+MacLow::StopMpduAggregation (Ptr<const Packet> peekedPacket, WifiMacHeader peekedHdr, Ptr<Packet> aggregatedPacket, uint8_t blockAckSize) const
+{
+  if (peekedPacket == 0)
+    {
+      NS_LOG_DEBUG ("no more packets in queue");
+      return true;
+    }
+
+  Time aPPDUMaxTime = MicroSeconds (5484);
+  uint8_t tid = GetTid (peekedPacket, peekedHdr);
+  AcIndex ac = QosUtilsMapTidToAc (tid);
+  std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+
+  if (m_phy->GetGreenfield ())
+    {
+      aPPDUMaxTime = MicroSeconds (10000);
+    }
+
+  //A STA shall not transmit a PPDU that has a duration that is greater than aPPDUMaxTime
+  if (m_phy->CalculateTxDuration (aggregatedPacket->GetSize () + peekedPacket->GetSize () + peekedHdr.GetSize () + WIFI_MAC_FCS_LENGTH, m_currentTxVector, m_phy->GetFrequency ()) > aPPDUMaxTime)
+    {
+      NS_LOG_DEBUG ("no more packets can be aggregated to satisfy PPDU <= aPPDUMaxTime");
+      return true;
+    }
+
+  if (!edcaIt->second->GetMpduAggregator ()->CanBeAggregated (peekedPacket->GetSize () + peekedHdr.GetSize () + WIFI_MAC_FCS_LENGTH, aggregatedPacket, blockAckSize))
+    {
+      NS_LOG_DEBUG ("no more packets can be aggregated because the maximum A-MPDU size has been reached");
+      return true;
+    }
+
+  return false;
+}
+
+Ptr<Packet>
+MacLow::AggregateToAmpdu (Ptr<const Packet> packet, const WifiMacHeader hdr)
+{
+  bool isAmpdu = false;
+  Ptr<Packet> newPacket, tempPacket;
+  WifiMacHeader peekedHdr;
+  newPacket = packet->Copy ();
+  Ptr<Packet> currentAggregatedPacket;
+  CtrlBAckRequestHeader blockAckReq;
+
+  if (hdr.IsBlockAckReq ())
+    {
+      //Workaround to avoid BlockAckReq to be part of an A-MPDU. The standard says that
+      //BlockAckReq is not present in A-MPDU if any QoS data frames for that TID are present.
+      //Since an A-MPDU in non-PSMP frame exchanges aggregates MPDUs from one TID, this means
+      //we should stop aggregation here for single-TID A-MPDUs. Once PSMP and multi-TID A-MPDUs
+      //are supported, the condition of entering here should be changed.
+      return newPacket;
+    }
+
+  //missing hdr.IsAck() since we have no means of knowing the Tid of the Ack yet
+  if (hdr.IsQosData () || hdr.IsBlockAck ()|| hdr.IsBlockAckReq ())
+    {
+      Time tstamp;
+      uint8_t tid = GetTid (packet, hdr);
+      Ptr<WifiMacQueue> queue;
+      Ptr<Packet> aggPacket;
+      AcIndex ac = QosUtilsMapTidToAc (tid);
+      std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+      NS_ASSERT (edcaIt != m_edca.end ());
+      queue = edcaIt->second->GetWifiMacQueue ();
+
+      if (!hdr.GetAddr1 ().IsBroadcast () && edcaIt->second->GetMpduAggregator () != 0)
+        {
+          //Have to make sure that their exist a block Ack agreement before sending an AMPDU (BlockAck Manager)
+          if (edcaIt->second->GetBaAgreementExists (hdr.GetAddr1 (), tid))
+            {
+              /* here is performed mpdu aggregation */
+              /* MSDU aggregation happened in edca if the user asked for it so m_currentPacket may contains a normal packet or a A-MSDU*/
+              currentAggregatedPacket = Create<Packet> ();
+              peekedHdr = hdr;
+              uint16_t startingSequenceNumber = 0;
+              uint16_t currentSequenceNumber = 0;
+              uint8_t qosPolicy = 0;
+              uint8_t blockAckSize = 0;
+              bool aggregated = false;
+              uint8_t i = 0;
+              aggPacket = newPacket->Copy ();
+
+              if (!hdr.IsBlockAckReq ())
+                {
+                  if (!hdr.IsBlockAck ())
+                    {
+                      startingSequenceNumber = peekedHdr.GetSequenceNumber ();
+                      peekedHdr.SetQosAckPolicy (WifiMacHeader::NORMAL_ACK);
+                    }
+                  currentSequenceNumber = peekedHdr.GetSequenceNumber ();
+                  newPacket->AddHeader (peekedHdr);
+                  AddWifiMacTrailer (newPacket);
+
+                  aggregated = edcaIt->second->GetMpduAggregator ()->Aggregate (newPacket, currentAggregatedPacket);
+
+                  if (aggregated)
+                    {
+                      NS_LOG_DEBUG ("Adding packet with sequence number " << currentSequenceNumber << " to A-MPDU, packet size = " << newPacket->GetSize () << ", A-MPDU size = " << currentAggregatedPacket->GetSize ());
+                      i++;
+                      m_aggregateQueue[tid]->Enqueue (Create<WifiMacQueueItem> (aggPacket, peekedHdr));
+                    }
+                }
+              else if (hdr.IsBlockAckReq ())
+                {
+                  blockAckSize = static_cast<uint8_t> (packet->GetSize () + hdr.GetSize () + WIFI_MAC_FCS_LENGTH);
+                  qosPolicy = 3; //if the last subframe is block ack req then set ack policy of all frames to blockack
+                  packet->PeekHeader (blockAckReq);
+                  startingSequenceNumber = blockAckReq.GetStartingSequence ();
+                }
+              /// \todo We should also handle Ack and BlockAck
+              bool retry = false;
+              //looks for other packets to the same destination with the same Tid need to extend that to include MSDUs
+              Ptr<const Packet> peekedPacket = edcaIt->second->PeekNextRetransmitPacket (peekedHdr, tid, &tstamp);
+              if (peekedPacket == 0)
+                {
+                  Ptr<const WifiMacQueueItem> item = queue->PeekByTidAndAddress (tid,
+                                                                                 hdr.GetAddr1 ());
+                  if (item)
+                    {
+                      peekedPacket = item->GetPacket ();
+                      peekedHdr = item->GetHeader ();
+                      tstamp = item->GetTimeStamp ();
+                    }
+                  currentSequenceNumber = edcaIt->second->PeekNextSequenceNumberFor (&peekedHdr);
+
+                  /* here is performed MSDU aggregation (two-level aggregation) */
+                  if (peekedPacket != 0 && edcaIt->second->GetMsduAggregator () != 0)
+                    {
+                      tempPacket = PerformMsduAggregation (peekedPacket, &peekedHdr, &tstamp, currentAggregatedPacket, blockAckSize);
+                      if (tempPacket != 0)  //MSDU aggregation
+                        {
+                          peekedPacket = tempPacket->Copy ();
+                        }
+                    }
+                }
+              else
+                {
+                  retry = true;
+                  currentSequenceNumber = peekedHdr.GetSequenceNumber ();
+                }
+
+              while (IsInWindow (currentSequenceNumber, startingSequenceNumber, 64) && !StopMpduAggregation (peekedPacket, peekedHdr, currentAggregatedPacket, blockAckSize))
+                {
+                  //for now always send AMPDU with normal ACK
+                  if (retry == false)
+                    {
+                      currentSequenceNumber = edcaIt->second->GetNextSequenceNumberFor (&peekedHdr);
+                      peekedHdr.SetSequenceNumber (currentSequenceNumber);
+                      peekedHdr.SetFragmentNumber (0);
+                      peekedHdr.SetNoMoreFragments ();
+                      peekedHdr.SetNoRetry ();
+                    }
+                  if (qosPolicy == 0)
+                    {
+                      peekedHdr.SetQosAckPolicy (WifiMacHeader::NORMAL_ACK);
+                    }
+                  else
+                    {
+                      peekedHdr.SetQosAckPolicy (WifiMacHeader::BLOCK_ACK);
+                    }
+
+                  newPacket = peekedPacket->Copy ();
+                  aggPacket = newPacket->Copy ();
+
+                  newPacket->AddHeader (peekedHdr);
+                  AddWifiMacTrailer (newPacket);
+                  aggregated = edcaIt->second->GetMpduAggregator ()->Aggregate (newPacket, currentAggregatedPacket);
+                  if (aggregated)
+                    {
+                      m_aggregateQueue[tid]->Enqueue (Create<WifiMacQueueItem> (aggPacket, peekedHdr));
+                      if (i == 1 && hdr.IsQosData ())
+                        {
+                          if (!m_txParams.MustSendRts ())
+                            {
+                              edcaIt->second->CompleteMpduTx (packet, hdr, tstamp);
+                            }
+                          else
+                            {
+                              InsertInTxQueue (packet, hdr, tstamp, tid);
+                            }
+                        }
+                      NS_LOG_DEBUG ("Adding packet with sequence number " << peekedHdr.GetSequenceNumber () << " to A-MPDU, packet size = " << newPacket->GetSize () << ", A-MPDU size = " << currentAggregatedPacket->GetSize ());
+                      i++;
+                      isAmpdu = true;
+                      if (!m_txParams.MustSendRts ())
+                        {
+                          edcaIt->second->CompleteMpduTx (peekedPacket, peekedHdr, tstamp);
+                        }
+                      else
+                        {
+                          InsertInTxQueue (peekedPacket, peekedHdr, tstamp, tid);
+                        }
+                      if (retry)
+                        {
+                          edcaIt->second->RemoveRetransmitPacket (tid, hdr.GetAddr1 (), peekedHdr.GetSequenceNumber ());
+                        }
+                      else
+                        {
+                          queue->Remove (peekedPacket);
+                        }
+                      newPacket = 0;
+                    }
+                  else
+                    {
+                      break;
+                    }
+                  if (retry == true)
+                    {
+                      peekedPacket = edcaIt->second->PeekNextRetransmitPacket (peekedHdr, tid, &tstamp);
+                      if (peekedPacket == 0)
+                        {
+                          //I reached the first packet that I added to this A-MPDU
+                          retry = false;
+                          Ptr<const WifiMacQueueItem> item = queue->PeekByTidAndAddress (tid,
+                                                                                         hdr.GetAddr1 ());
+                          if (item != 0)
+                            {
+                              peekedPacket = item->GetPacket ();
+                              peekedHdr = item->GetHeader ();
+                              tstamp = item->GetTimeStamp ();
+                              //find what will the sequence number be so that we don't send more than 64 packets apart
+                              currentSequenceNumber = edcaIt->second->PeekNextSequenceNumberFor (&peekedHdr);
+
+                              if (edcaIt->second->GetMsduAggregator () != 0)
+                                {
+                                  tempPacket = PerformMsduAggregation (peekedPacket, &peekedHdr, &tstamp, currentAggregatedPacket, blockAckSize);
+                                  if (tempPacket != 0) //MSDU aggregation
+                                    {
+                                      peekedPacket = tempPacket->Copy ();
+                                    }
+                                }
+                            }
+                        }
+                      else
+                        {
+                          currentSequenceNumber = peekedHdr.GetSequenceNumber ();
+                        }
+                    }
+                  else
+                    {
+                      Ptr<const WifiMacQueueItem> item = queue->PeekByTidAndAddress (tid,
+                                                                                     hdr.GetAddr1 ());
+                      if (item != 0)
+                        {
+                          peekedPacket = item->GetPacket ();
+                          peekedHdr = item->GetHeader ();
+                          tstamp = item->GetTimeStamp ();
+                          //find what will the sequence number be so that we don't send more than 64 packets apart
+                          currentSequenceNumber = edcaIt->second->PeekNextSequenceNumberFor (&peekedHdr);
+
+                          if (edcaIt->second->GetMsduAggregator () != 0 && IsInWindow (currentSequenceNumber, startingSequenceNumber, 64))
+                            {
+                              tempPacket = PerformMsduAggregation (peekedPacket, &peekedHdr, &tstamp, currentAggregatedPacket, blockAckSize);
+                              if (tempPacket != 0) //MSDU aggregation
+                                {
+                                  peekedPacket = tempPacket->Copy ();
+                                }
+                            }
+                        }
+                      else
+                        {
+                          peekedPacket = 0;
+                        }
+                    }
+                }
+
+              if (isAmpdu)
+                {
+                  if (hdr.IsBlockAckReq ())
+                    {
+                      newPacket = packet->Copy ();
+                      peekedHdr = hdr;
+                      aggPacket = newPacket->Copy ();
+                      m_aggregateQueue[tid]->Enqueue (Create<WifiMacQueueItem> (aggPacket, peekedHdr));
+                      newPacket->AddHeader (peekedHdr);
+                      AddWifiMacTrailer (newPacket);
+                      edcaIt->second->GetMpduAggregator ()->Aggregate (newPacket, currentAggregatedPacket);
+                      currentAggregatedPacket->AddHeader (blockAckReq);
+                    }
+
+                  if (qosPolicy == 0)
+                    {
+                      edcaIt->second->CompleteAmpduTransfer (hdr.GetAddr1 (), tid);
+                    }
+
+                  //Add packet tag
+                  AmpduTag ampdutag;
+                  ampdutag.SetRemainingNbOfMpdus (i - 1);
+                  newPacket = currentAggregatedPacket;
+                  newPacket->AddPacketTag (ampdutag);
+
+                  NS_LOG_DEBUG ("tx unicast A-MPDU");
+                  edcaIt->second->SetAmpduExist (hdr.GetAddr1 (), true);
+                }
+              else
+                {
+                  uint32_t queueSize = m_aggregateQueue[tid]->GetNPackets ();
+                  NS_ASSERT (queueSize <= 2); //since it is not an A-MPDU then only 2 packets should have been added to the queue no more
+                  if (queueSize >= 1)
+                    {
+                      //remove any packets that we added to the aggregate queue
+                      FlushAggregateQueue (tid);
+                    }
+                }
+            }
+          // VHT/HE single MPDU operation
+          WifiTxVector dataTxVector = GetDataTxVector (m_currentPacket, &m_currentHdr);
+          if (!isAmpdu
+              && hdr.IsQosData ()
+              && (dataTxVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_VHT
+                  || dataTxVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HE))
+            {
+              peekedHdr = hdr;
+              peekedHdr.SetQosAckPolicy (WifiMacHeader::NORMAL_ACK);
+
+              currentAggregatedPacket = Create<Packet> ();
+              edcaIt->second->GetMpduAggregator ()->AggregateSingleMpdu (packet, currentAggregatedPacket);
+              m_aggregateQueue[tid]->Enqueue (Create<WifiMacQueueItem> (packet, peekedHdr));
+              if (m_txParams.MustSendRts ())
+                {
+                  InsertInTxQueue (packet, peekedHdr, tstamp, tid);
+                }
+              if (edcaIt->second->GetBaAgreementExists (hdr.GetAddr1 (), tid))
+                {
+                  edcaIt->second->CompleteAmpduTransfer (peekedHdr.GetAddr1 (), tid);
+                }
+
+              //Add packet tag
+              AmpduTag ampdutag;
+              newPacket = currentAggregatedPacket;
+              newPacket->AddHeader (peekedHdr);
+              AddWifiMacTrailer (newPacket);
+              newPacket->AddPacketTag (ampdutag);
+
+              NS_LOG_DEBUG ("tx unicast S-MPDU with sequence number " << hdr.GetSequenceNumber ());
+              edcaIt->second->SetAmpduExist (hdr.GetAddr1 (), true);
+            }
+        }
+    }
+  return newPacket;
+}
+
+void
+MacLow::FlushAggregateQueue (uint8_t tid)
+{
+  if (!m_aggregateQueue[tid]->IsEmpty ())
+    {
+      NS_LOG_DEBUG ("Flush aggregate queue");
+      m_aggregateQueue[tid]->Flush ();
+    }
+  m_txPackets[tid].clear ();
+}
+
+void
+MacLow::InsertInTxQueue (Ptr<const Packet> packet, const WifiMacHeader &hdr, Time tStamp, uint8_t tid)
+{
+  NS_LOG_FUNCTION (this);
+  Item item;
+  item.packet = packet;
+  item.hdr = hdr;
+  item.timestamp = tStamp;
+  m_txPackets[tid].push_back (item);
+}
+
+Ptr<Packet>
+MacLow::PerformMsduAggregation (Ptr<const Packet> packet, WifiMacHeader *hdr, Time *tstamp, Ptr<Packet> currentAmpduPacket, uint8_t blockAckSize)
+{
+  bool msduAggregation = false;
+  bool isAmsdu = false;
+  Ptr<Packet> currentAmsduPacket = Create<Packet> ();
+  Ptr<Packet> tempPacket = Create<Packet> ();
+
+  Ptr<WifiMacQueue> queue;
+  AcIndex ac = QosUtilsMapTidToAc (GetTid (packet, *hdr));
+  std::map<AcIndex, Ptr<QosTxop> >::const_iterator edcaIt = m_edca.find (ac);
+  NS_ASSERT (edcaIt != m_edca.end ());
+  queue = edcaIt->second->GetWifiMacQueue ();
+
+  Ptr<const WifiMacQueueItem> peekedItem = queue->DequeueByTidAndAddress (hdr->GetQosTid (),
+                                                                          hdr->GetAddr1 ());
+  if (peekedItem)
+    {
+      *hdr = peekedItem->GetHeader ();
+    }
+
+  edcaIt->second->GetMsduAggregator ()->Aggregate (packet, currentAmsduPacket,
+                                                   edcaIt->second->MapSrcAddressForAggregation (*hdr),
+                                                   edcaIt->second->MapDestAddressForAggregation (*hdr));
+
+  peekedItem = queue->PeekByTidAndAddress (hdr->GetQosTid (), hdr->GetAddr1 ());
+  while (peekedItem != 0)
+    {
+      *hdr = peekedItem->GetHeader ();
+      *tstamp = peekedItem->GetTimeStamp ();
+      tempPacket = currentAmsduPacket;
+
+      msduAggregation = edcaIt->second->GetMsduAggregator ()->Aggregate (peekedItem->GetPacket (), tempPacket,
+                                                                         edcaIt->second->MapSrcAddressForAggregation (*hdr),
+                                                                         edcaIt->second->MapDestAddressForAggregation (*hdr));
+
+      if (msduAggregation && !StopMpduAggregation (tempPacket, *hdr, currentAmpduPacket, blockAckSize))
+        {
+          isAmsdu = true;
+          currentAmsduPacket = tempPacket;
+          queue->Remove (peekedItem->GetPacket ());
+        }
+      else
+        {
+          break;
+        }
+      peekedItem = queue->PeekByTidAndAddress (hdr->GetQosTid (), hdr->GetAddr1 ());
+    }
+
+  if (isAmsdu)
+    {
+      NS_LOG_DEBUG ("A-MSDU with size = " << currentAmsduPacket->GetSize ());
+      hdr->SetQosAmsdu ();
+      hdr->SetAddr3 (GetBssid ());
+      return currentAmsduPacket;
+    }
+  else
+    {
+      queue->PushFront (Create<WifiMacQueueItem> (packet, *hdr));
+      return 0;
     }
 }
 
@@ -2668,7 +2968,7 @@ MacLow::GetRemainingCfpDuration (void) const
 bool
 MacLow::IsCfPeriod (void) const
 {
-  return (m_stationManager->GetPcfSupported () && m_cfpStart.IsStrictlyPositive ());
+  return (m_stationManager->HasPcfSupported () && m_cfpStart.IsStrictlyPositive ());
 }
 
 bool

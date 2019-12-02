@@ -41,8 +41,8 @@ NS_LOG_COMPONENT_DEFINE ("LenaPathlossTraces");
 int main (int argc, char *argv[])
 {
   double enbDist = 20.0;
-  double radius = 10.0;
-  uint32_t numUes = 1;
+  double radius = 100.0;
+  uint32_t numUes = 20;
 
 
   CommandLine cmd;
@@ -60,7 +60,7 @@ int main (int argc, char *argv[])
   // determine the string tag that identifies this simulation run
   // this tag is then appended to all filenames
 
-  UintegerValue runValue;
+  IntegerValue runValue;
   GlobalValue::GetValueByName ("RngRun", runValue);
 
   std::ostringstream tag;

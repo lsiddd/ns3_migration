@@ -24,7 +24,6 @@
 #define MAC_LOW_TRANSMISSION_PARAMETERS_H
 
 #include "ns3/uinteger.h"
-#include "block-ack-type.h"
 
 namespace ns3 {
 
@@ -55,10 +54,6 @@ public:
    * Wait COMPRESSEDBLOCKACKTimeout for a Compressed Block Ack Response frame.
    */
   void EnableCompressedBlockAck (void);
-  /**
-   * Wait COMPRESSEDBLOCKACKTimeout for an Extended Compressed Block Ack Response frame.
-   */
-  void EnableExtendedCompressedBlockAck (void);
   /**
    * NOT IMPLEMENTED FOR NOW
    */
@@ -105,13 +100,19 @@ public:
    *
    * \sa EnableBlockAck
    */
-  bool MustWaitBlockAck (void) const;
+  bool MustWaitBasicBlockAck (void) const;
   /**
-   * \returns the selected block ack variant.
+   * \returns true if compressed block ack mechanism is used, false otherwise.
    *
-   * Only call this method if the block ack mechanism is used.
+   * \sa EnableCompressedBlockAck
    */
-  BlockAckType GetBlockAckType (void) const;
+  bool MustWaitCompressedBlockAck (void) const;
+  /**
+   * \returns true if multi-tid block ack mechanism is used, false otherwise.
+   *
+   * \sa EnableMultiTidBlockAck
+   */
+  bool MustWaitMultiTidBlockAck (void) const;
   /**
    * \returns true if RTS should be sent and CTS waited for before
    *          sending data, false otherwise.
@@ -136,7 +137,6 @@ private:
     ACK_NORMAL,
     BLOCK_ACK_BASIC,
     BLOCK_ACK_COMPRESSED,
-    BLOCK_ACK_EXTENDED_COMPRESSED,
     BLOCK_ACK_MULTI_TID
   } m_waitAck; //!< wait ack
   bool m_sendRts; //!< send an RTS?

@@ -25,12 +25,12 @@
 #define WIFI_MAC_QUEUE_ITEM_H
 
 #include "ns3/nstime.h"
+#include "ns3/queue.h"
 #include "wifi-mac-header.h"
 
 namespace ns3 {
 
 class QosBlockedDestinations;
-class Packet;
 
 /**
  * \ingroup wifi
@@ -48,14 +48,6 @@ public:
    */
   WifiMacQueueItem (Ptr<const Packet> p, const WifiMacHeader & header);
 
-  /**
-   * \brief Create a Wifi MAC queue item containing a packet and a Wifi MAC header.
-   * \param p the const packet included in the created item.
-   * \param header the Wifi Mac header included in the created item.
-   * \param tstamp the timestamp associated with the created item.
-   */
-  WifiMacQueueItem (Ptr<const Packet> p, const WifiMacHeader & header, Time tstamp);
-
   virtual ~WifiMacQueueItem ();
 
   /**
@@ -71,12 +63,6 @@ public:
   const WifiMacHeader & GetHeader (void) const;
 
   /**
-   * \brief Get the header stored in this item
-   * \return the header stored in this item.
-   */
-  WifiMacHeader & GetHeader (void);
-
-  /**
    * \brief Return the destination address present in the header
    * \return the destination address
    */
@@ -89,33 +75,46 @@ public:
   Time GetTimeStamp (void) const;
 
   /**
-   * \brief Return the size of the packet stored by this item, including header
-   *        size and trailer size
+   * \brief Return the size of the packet included in this item
    *
-   * \return the size of the packet stored by this item.
+   * \return the size of the packet included in this item.
    */
   uint32_t GetSize (void) const;
 
-  /**
-   * \brief Print the item contents.
-   * \param os output stream in which the data should be printed.
-   */
-  virtual void Print (std::ostream &os) const;
-
 private:
+  /**
+   * \brief Default constructor
+   *
+   * Defined and unimplemented to avoid misuse
+   */
+  WifiMacQueueItem ();
+  /**
+   * \brief Copy constructor
+   *
+   * Defined and unimplemented to avoid misuse
+   */
+  WifiMacQueueItem (const WifiMacQueueItem &);
+  /**
+   * \brief Assignment operator
+   *
+   * Defined and unimplemented to avoid misuse
+   * \returns
+   */
+  WifiMacQueueItem &operator = (const WifiMacQueueItem &);
+
   Ptr<const Packet> m_packet;  //!< The packet contained in this queue item
   WifiMacHeader m_header;      //!< Wifi MAC header associated with the packet
   Time m_tstamp;               //!< timestamp when the packet arrived at the queue
 };
 
-/**
- * \brief Stream insertion operator.
- *
- * \param os the stream
- * \param item the item
- * \returns a reference to the stream
- */
-std::ostream& operator<< (std::ostream& os, const WifiMacQueueItem &item);
+
+// The following explicit template instantiation declaration prevents modules
+// including this header file from implicitly instantiating Queue<WifiMacQueueItem>.
+// This would cause python examples using wifi to crash at runtime with the
+// following error message: "Trying to allocate twice the same uid:
+// ns3::Queue<WifiMacQueueItem>"
+extern template class Queue<WifiMacQueueItem>;
+
 
 } //namespace ns3
 

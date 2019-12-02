@@ -99,9 +99,9 @@ public:
   /**
    * Set the maximum MPDU length.
    *
-   * \param length the maximum MPDU length (3895, 7991 or 11454)
+   * \param length the maximum MPDU length
    */
-  void SetMaxMpduLength (uint16_t length);
+  void SetMaxMpduLength (uint8_t length);
   /**
    * Set the supported channel width set.
    *
@@ -139,18 +139,12 @@ public:
    */
   void SetTxStbc (uint8_t txstbc);
   /**
-   * Set the maximum AMPDU length.
+   * Set the maximum AMPDU length exponent.
    *
-   * \param maxampdulength 2^(13 + x) - 1, x in the range 0 to 7
+   * \param exponent the maximum AMPDU length exponent
    */
-  void SetMaxAmpduLength (uint32_t maxampdulength);
+  void SetMaxAmpduLengthExponent (uint8_t exponent);
 
-  /**
-   * Get the maximum MPDU length.
-   *
-   * \return the maximum MPDU length
-   */
-  uint16_t GetMaxMpduLength (void) const;
   /**
    * Get the supported channel width set.
    *
@@ -228,13 +222,6 @@ public:
    * \returns is receive MCS supported
    */
   bool IsSupportedRxMcs (uint8_t mcs) const;
-
-  /**
-   * Return the maximum A-MPDU length.
-   *
-   * \return the maximum A-MPDU length
-   */
-  uint32_t GetMaxAmpduLength (void) const;
 
   /**
    * This information element is a bit special in that it is only

@@ -208,22 +208,9 @@ VhtCapabilities::GetSupportedMcsAndNssSet () const
 }
 
 void
-VhtCapabilities::SetMaxMpduLength (uint16_t length)
+VhtCapabilities::SetMaxMpduLength (uint8_t length)
 {
-  NS_ABORT_MSG_IF (length != 3895 && length != 7991 && length != 11454,
-                   "Invalid MPDU Max Length value");
-  if (length == 11454)
-    {
-      m_maxMpduLength = 2;
-    }
-  else if (length == 7991)
-    {
-      m_maxMpduLength = 1;
-    }
-  else
-    {
-      m_maxMpduLength = 0;
-    }
+  m_maxMpduLength = length;
 }
 
 void
@@ -263,17 +250,9 @@ VhtCapabilities::SetTxStbc (uint8_t txstbc)
 }
 
 void
-VhtCapabilities::SetMaxAmpduLength (uint32_t maxampdulength)
+VhtCapabilities::SetMaxAmpduLengthExponent (uint8_t exponent)
 {
-  for (uint8_t i = 0; i <= 7; i++)
-    {
-      if ((1ul << (13 + i)) - 1 == maxampdulength)
-        {
-          m_maxAmpduLengthExponent = i;
-          return;
-        }
-    }
-  NS_ABORT_MSG ("Invalid A-MPDU Max Length value");
+  m_maxAmpduLengthExponent = exponent;
 }
 
 void
@@ -342,24 +321,6 @@ VhtCapabilities::SetTxHighestSupportedLgiDataRate (uint16_t supporteddatarate)
   m_txHighestSupportedLongGuardIntervalDataRate = supporteddatarate;
 }
 
-uint16_t
-VhtCapabilities::GetMaxMpduLength (void) const
-{
-  if (m_maxMpduLength == 0)
-    {
-      return 3895;
-    }
-  if (m_maxMpduLength == 1)
-    {
-      return 7991;
-    }
-  if (m_maxMpduLength == 2)
-    {
-      return 11454;
-    }
-  NS_ABORT_MSG ("The value 3 is reserved");
-}
-
 uint8_t
 VhtCapabilities::GetSupportedChannelWidthSet () const
 {
@@ -382,12 +343,6 @@ uint8_t
 VhtCapabilities::GetTxStbc () const
 {
   return m_txStbc;
-}
-
-uint32_t
-VhtCapabilities::GetMaxAmpduLength (void) const
-{
-  return (1ul << (13 + m_maxAmpduLengthExponent)) - 1;
 }
 
 bool

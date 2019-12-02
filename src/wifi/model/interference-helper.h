@@ -172,44 +172,23 @@ public:
    */
   void AddForeignSignal (Time duration, double rxPower);
   /**
-   * Calculate the SNIR at the start of the payload and accumulate
-   * all SNIR changes in the snir vector for each MPDU of an A-MPDU.
-   * This workaround is required in order to provide one PER per MPDU, for
-   * reception success/failure evaluation, while hiding aggregation details from
-   * this class.
-   *
-   * \param event the event corresponding to the first time the corresponding packet arrives
-   * \param relativeMpduStartStop the time window (pair of start and end times) of PLCP payload to focus on
-   *
-   * \return struct of SNR and PER (with PER being evaluated over the provided time window)
-   */
-  struct InterferenceHelper::SnrPer CalculatePayloadSnrPer (Ptr<Event> event, std::pair<Time, Time> relativeMpduStartStop) const;
-  /**
-   * Calculate the SNIR for the event (starting from now until the event end).
-   *
-   * \param event the event corresponding to the first time the corresponding packet arrives
-   *
-   * \return the SNR for the packet
-   */
-  double CalculateSnr (Ptr<Event> event) const;
-  /**
-   * Calculate the SNIR at the start of the legacy PHY header and accumulate
+   * Calculate the SNIR at the start of the plcp payload and accumulate
    * all SNIR changes in the snir vector.
    *
    * \param event the event corresponding to the first time the corresponding packet arrives
    *
    * \return struct of SNR and PER
    */
-  struct InterferenceHelper::SnrPer CalculateLegacyPhyHeaderSnrPer (Ptr<Event> event) const;
+  struct InterferenceHelper::SnrPer CalculatePlcpPayloadSnrPer (Ptr<Event> event) const;
   /**
-   * Calculate the SNIR at the start of the non-legacy PHY header and accumulate
+   * Calculate the SNIR at the start of the plcp header and accumulate
    * all SNIR changes in the snir vector.
    *
    * \param event the event corresponding to the first time the corresponding packet arrives
    *
    * \return struct of SNR and PER
    */
-  struct InterferenceHelper::SnrPer CalculateNonLegacyPhyHeaderSnrPer (Ptr<Event> event) const;
+  struct InterferenceHelper::SnrPer CalculatePlcpHeaderSnrPer (Ptr<Event> event) const;
 
   /**
    * Notify that RX has started.
@@ -286,12 +265,13 @@ private:
   double CalculateNoiseInterferenceW (Ptr<Event> event, NiChanges *ni) const;
   /**
    * Calculate SNR (linear ratio) from the given signal power and noise+interference power.
+   * (Mode is not currently used)
    *
-   * \param signal signal power, W
-   * \param noiseInterference noise and interference power, W
-   * \param channelWidth signal width in MHz
+   * \param signal
+   * \param noiseInterference
+   * \param channelWidth
    *
-   * \return SNR in linear ratio
+   * \return SNR in liear ratio
    */
   double CalculateSnr (double signal, double noiseInterference, uint16_t channelWidth) const;
   /**
@@ -307,37 +287,25 @@ private:
    */
   double CalculateChunkSuccessRate (double snir, Time duration, WifiMode mode, WifiTxVector txVector) const;
   /**
-   * Calculate the error rate of the given PLCP payload only in the provided time
-   * window (thus enabling per MPDU PER information). The PLCP payload can be divided into
+   * Calculate the error rate of the given plcp payload. The plcp payload can be divided into
    * multiple chunks (e.g. due to interference from other transmissions).
    *
    * \param event
    * \param ni
-   * \param window time window (pair of start and end times) of PLCP payload to focus on
    *
-   * \return the error rate of the payload
+   * \return the error rate of the packet
    */
-  double CalculatePayloadPer (Ptr<const Event> event, NiChanges *ni, std::pair<Time, Time> window) const;
+  double CalculatePlcpPayloadPer (Ptr<const Event> event, NiChanges *ni) const;
   /**
-   * Calculate the error rate of the legacy PHY header. The legacy PHY header
-   * can be divided into multiple chunks (e.g. due to interference from other transmissions).
+   * Calculate the error rate of the plcp header. The plcp header can be divided into
+   * multiple chunks (e.g. due to interference from other transmissions).
    *
    * \param event
    * \param ni
    *
-   * \return the error rate of the legacy PHY header
+   * \return the error rate of the packet
    */
-  double CalculateLegacyPhyHeaderPer (Ptr<const Event> event, NiChanges *ni) const;
-  /**
-   * Calculate the error rate of the non-legacy PHY header. The non-legacy PHY header
-   * can be divided into multiple chunks (e.g. due to interference from other transmissions).
-   *
-   * \param event
-   * \param ni
-   *
-   * \return the error rate of the non-legacy PHY header
-   */
-  double CalculateNonLegacyPhyHeaderPer (Ptr<const Event> event, NiChanges *ni) const;
+  double CalculatePlcpHeaderPer (Ptr<const Event> event, NiChanges *ni) const;
 
   double m_noiseFigure; /**< noise figure (linear) */
   Ptr<ErrorRateModel> m_errorRateModel; ///< error rate model

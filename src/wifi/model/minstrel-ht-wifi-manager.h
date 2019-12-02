@@ -28,7 +28,6 @@
 
 #include "wifi-remote-station-manager.h"
 #include "minstrel-wifi-manager.h"
-#include "wifi-mpdu-type.h"
 
 namespace ns3 {
 
@@ -205,6 +204,7 @@ public:
   // Inherited from WifiRemoteStationManager
   void SetupPhy (const Ptr<WifiPhy> phy);
   void SetupMac (const Ptr<WifiMac> mac);
+  void SetHeSupported (bool enable); //HE rates not yet supported
 
   /**
    * TracedCallback signature for rate change events.
@@ -256,11 +256,21 @@ private:
    * \param sgi short guard interval enabled (0 or 1)
    * \param chWidth the channel width (MHz)
    * \param mode the wifi mode
-   * \param mpduType the type of the MPDU
    * \returns the transmit time
    */
-  Time CalculateMpduTxDuration (Ptr<WifiPhy> phy, uint8_t streams, uint8_t sgi,
-                                uint16_t chWidth, WifiMode mode, MpduType mpduType);
+  Time CalculateMpduTxDuration (Ptr<WifiPhy> phy, uint8_t streams, uint8_t sgi, uint16_t chWidth, WifiMode mode);
+
+  /**
+   * Estimates the TxTime of a frame with a given mode and group (stream, guard interval and channel width).
+   *
+   * \param phy pointer to the wifi phy
+   * \param streams the number of streams
+   * \param sgi short guard interval enabled (0 or 1)
+   * \param chWidth the channel width (MHz)
+   * \param mode the wifi mode
+   * \returns the transmit time
+   */
+  Time CalculateFirstMpduTxDuration (Ptr<WifiPhy> phy, uint8_t streams, uint8_t sgi, uint16_t chWidth, WifiMode mode);
 
   /**
    * Obtain the TXtime saved in the group information.

@@ -102,7 +102,7 @@ public:
   void SetDci (DlDciListElement_s dci);
 
   /**
-  * \brief Get dic information
+  * \brief Get dic informations
   * \return dci messages
   */
   DlDciListElement_s GetDci (void);
@@ -132,7 +132,7 @@ public:
   void SetDci (UlDciListElement_s dci);
 
   /**
-  * \brief Get dic information
+  * \brief Get dic informations
   * \return dci messages
   */
   UlDciListElement_s GetDci (void);
@@ -162,7 +162,7 @@ public:
   void SetDlCqi (CqiListElement_s dlcqi);
 
   /**
-  * \brief Get DL cqi information
+  * \brief Get DL cqi informations
   * \return dlcqi messages
   */
   CqiListElement_s GetDlCqi (void);
@@ -192,7 +192,7 @@ public:
   void SetBsr (MacCeListElement_s bsr);
 
   /**
-  * \brief Get BSR information
+  * \brief Get BSR informations
   * \return BSR message
   */
   MacCeListElement_s GetBsr (void);
@@ -223,7 +223,7 @@ public:
   void SetDlHarqFeedback (DlInfoListElement_s m);
 
   /**
-  * \brief Get DL HARQ information
+  * \brief Get DL HARQ informations
   * \return DL HARQ message
   */
   DlInfoListElement_s GetDlHarqFeedback (void);

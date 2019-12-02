@@ -662,7 +662,7 @@ AnimationInterface::WifiPhyTxDropTrace (std::string context, Ptr<const Packet> p
 }
 
 void
-AnimationInterface::WifiPhyRxDropTrace (std::string context, Ptr<const Packet> p, WifiPhyRxfailureReason reason)
+AnimationInterface::WifiPhyRxDropTrace (std::string context, Ptr<const Packet> p)
 {
   const Ptr <const Node> node = GetNodeFromContext (context);
   ++m_nodeWifiPhyRxDrop[node->GetId ()];
@@ -867,7 +867,7 @@ AnimationInterface::UanPhyGenRxTrace (std::string context, Ptr<const Packet> p)
 }
 
 void 
-AnimationInterface::WifiPhyTxBeginTrace (std::string context, Ptr<const Packet> p, double txPowerW)
+AnimationInterface::WifiPhyTxBeginTrace (std::string context, Ptr<const Packet> p)
 {
   NS_LOG_FUNCTION (this);
   return GenericWirelessTxTrace (context, p, AnimationInterface::WIFI);

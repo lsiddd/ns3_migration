@@ -102,7 +102,7 @@ public:
   /**
    * notify that a new signal is being perceived in the medium. This
    * method is to be called for all incoming signal, regardless of
-   * whether they're useful signals or interferers.
+   * wether they're useful signals or interferers.
    *
    * @param spd the power spectral density of the new signal
    * @param duration the duration of the new signal

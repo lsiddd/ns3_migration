@@ -35,11 +35,12 @@ namespace ns3 {
  * \ingroup lte
  *
  * ComponentCarrier Object, it defines a single Carrier
- * This is the parent class for both ComponentCarrierBaseStation
+ * This is the parent class for both ComponentCarrierEnb
  * and ComponentCarrierUe.
  * This class contains the main physical configuration
  * parameters for a carrier. Does not contain pointers to
  * the MAC/PHY objects of the carrier.
+
  */
 class ComponentCarrier : public Object
 {
@@ -63,7 +64,7 @@ public:
   /**
    * \param bw the uplink bandwidth in RBs
    */
-  virtual void SetUlBandwidth (uint8_t bw);
+  void SetUlBandwidth (uint8_t bw);
 
   /**
    * \return the downlink bandwidth in RBs
@@ -73,7 +74,7 @@ public:
   /**
    * \param bw the downlink bandwidth in RBs
    */
-  virtual void SetDlBandwidth (uint8_t bw);
+  void SetDlBandwidth (uint8_t bw);
 
   /**
    * \return the downlink carrier frequency (EARFCN)
@@ -171,40 +172,7 @@ protected:
 
 };
 
-/**
- * \ingroup lte
- *
- * Defines a Base station, that is a ComponentCarrier but with a cell Id.
- *
- */
-class ComponentCarrierBaseStation : public ComponentCarrier
-{
-public:
-  /**
-   * \brief Get the type ID.
-   * \return the object TypeId
-   */
-  static TypeId GetTypeId (void);
 
-  ComponentCarrierBaseStation ();
-
-  virtual ~ComponentCarrierBaseStation (void);
-
-  /**
-   * Get cell identifier
-   * \return cell identifier
-   */
-  uint16_t GetCellId ();
-
-  /**
-   * Set physical cell identifier
-   * \param cellId cell identifier
-   */
-  void SetCellId (uint16_t cellId);
-
-protected:
-  uint16_t m_cellId; ///< Cell identifier
-};
 
 } // namespace ns3
 

@@ -1,0 +1,1 @@
+/home/sid/hove/src/click/examples/nsclick-routing-node0.click

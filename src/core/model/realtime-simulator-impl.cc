@@ -90,7 +90,6 @@ RealtimeSimulatorImpl::RealtimeSimulatorImpl ()
   m_currentTs = 0;
   m_currentContext = Simulator::NO_CONTEXT;
   m_unscheduledEvents = 0;
-  m_eventCount = 0;
 
   m_main = SystemThread::Self();
 
@@ -331,7 +330,6 @@ RealtimeSimulatorImpl::ProcessOneEvent (void)
                    "RealtimeSimulatorImpl::ProcessOneEvent(): event queue is empty");
     next = m_events->RemoveNext ();
     m_unscheduledEvents--;
-    m_eventCount++;
 
     //
     // We cannot make any assumption that "next" is the same event we originally waited 
@@ -817,12 +815,6 @@ uint32_t
 RealtimeSimulatorImpl::GetContext (void) const
 {
   return m_currentContext;
-}
-
-uint64_t
-RealtimeSimulatorImpl::GetEventCount (void) const
-{
-  return m_eventCount;
 }
 
 void 

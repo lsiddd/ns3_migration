@@ -1,0 +1,1 @@
+/home/sid/hove/src/wave/model/channel-coordinator.h

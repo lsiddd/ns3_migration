@@ -132,24 +132,6 @@ MinstrelWifiManager::SetupMac (const Ptr<WifiMac> mac)
   WifiRemoteStationManager::SetupMac (mac);
 }
 
-void
-MinstrelWifiManager::DoInitialize ()
-{
-  NS_LOG_FUNCTION (this);
-  if (GetHtSupported ())
-    {
-      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support HT rates");
-    }
-  if (GetVhtSupported ())
-    {
-      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support VHT rates");
-    }
-  if (GetHeSupported ())
-    {
-      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support HE rates");
-    }
-}
-
 int64_t
 MinstrelWifiManager::AssignStreams (int64_t stream)
 {
@@ -385,7 +367,7 @@ MinstrelWifiManager::GetDataTxVector (MinstrelWifiRemoteStation *station)
       NS_LOG_DEBUG ("New datarate: " << mode.GetDataRate (channelWidth));
       m_currentRate = mode.GetDataRate (channelWidth);
     }
-  return WifiTxVector (mode, GetDefaultTxPowerLevel (), GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled (), UseGreenfieldForDestination (GetAddress (station))), 800, 1, 1, 0, channelWidth, GetAggregation (station), false);
+  return WifiTxVector (mode, GetDefaultTxPowerLevel (), GetPreambleForTransmission (mode, GetAddress (station)), 800, 1, 1, 0, channelWidth, GetAggregation (station), false);
 }
 
 WifiTxVector
@@ -409,7 +391,7 @@ MinstrelWifiManager::GetRtsTxVector (MinstrelWifiRemoteStation *station)
     {
       mode = GetNonErpSupported (station, 0);
     }
-  rtsTxVector = WifiTxVector (mode, GetDefaultTxPowerLevel (), GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled (), UseGreenfieldForDestination (GetAddress (station))), 800, 1, 1, 0, channelWidth, GetAggregation (station), false);
+  rtsTxVector = WifiTxVector (mode, GetDefaultTxPowerLevel (), GetPreambleForTransmission (mode, GetAddress (station)), 800, 1, 1, 0, channelWidth, GetAggregation (station), false);
   return rtsTxVector;
 }
 
@@ -983,7 +965,7 @@ MinstrelWifiManager::CalculateTimeUnicastPacket (Time dataTransmissionTime, uint
       tt += dataTransmissionTime + GetMac ()->GetAckTimeout ();
 
       //Add average back off (half the current contention window)
-      tt += (cw / 2.0) * GetMac ()->GetSlot ();
+      tt += NanoSeconds ((cw / 2) * GetMac ()->GetSlot ());
 
       //Update contention window
       cw = std::min (cwMax, (cw + 1) * 2);
@@ -1099,6 +1081,36 @@ MinstrelWifiManager::PrintTable (MinstrelWifiRemoteStation *station)
                        << "      lookaround " << station->m_samplePacketsCount << "\n\n";
 
   station->m_statsFile.flush ();
+}
+
+void
+MinstrelWifiManager::SetHtSupported (bool enable)
+{
+  //HT is not supported by this algorithm.
+  if (enable)
+    {
+      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support HT rates");
+    }
+}
+
+void
+MinstrelWifiManager::SetVhtSupported (bool enable)
+{
+  //VHT is not supported by this algorithm.
+  if (enable)
+    {
+      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support VHT rates");
+    }
+}
+
+void
+MinstrelWifiManager::SetHeSupported (bool enable)
+{
+  //HE is not supported by this algorithm.
+  if (enable)
+    {
+      NS_FATAL_ERROR ("WifiRemoteStationManager selected does not support HE rates");
+    }
 }
 
 } //namespace ns3

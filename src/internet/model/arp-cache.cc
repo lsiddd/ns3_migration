@@ -457,6 +457,12 @@ ArpCache::Entry::GetMacAddress (void) const
   return m_macAddress;
 }
 void 
+ArpCache::Entry::SetMacAddresss (Address macAddress)
+{
+  NS_LOG_FUNCTION (this);
+  m_macAddress = macAddress;
+}
+void 
 ArpCache::Entry::SetMacAddress (Address macAddress)
 {
   NS_LOG_FUNCTION (this);

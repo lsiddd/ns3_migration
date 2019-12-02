@@ -187,25 +187,25 @@ LteEnbNetDevice::DoDispose ()
 Ptr<LteEnbMac>
 LteEnbNetDevice::GetMac () const
 {
-  return GetMac (0);
+  return m_ccMap.at (0)->GetMac ();
 }
 
 Ptr<LteEnbPhy>
 LteEnbNetDevice::GetPhy () const
 {
-  return GetPhy (0);
+  return m_ccMap.at (0)->GetPhy ();
 }
 
 Ptr<LteEnbMac>
-LteEnbNetDevice::GetMac (uint8_t index) const
+LteEnbNetDevice::GetMac (uint8_t index) 
 {
-  return DynamicCast<ComponentCarrierEnb> (m_ccMap.at (index))->GetMac ();
+  return m_ccMap.at (index)->GetMac ();
 }
 
 Ptr<LteEnbPhy>
-LteEnbNetDevice::GetPhy(uint8_t index) const
+LteEnbNetDevice::GetPhy(uint8_t index)  
 {
-  return DynamicCast<ComponentCarrierEnb> (m_ccMap.at (index))->GetPhy ();
+  return m_ccMap.at (index)->GetPhy ();
 }
 
 Ptr<LteEnbRrc>
@@ -347,14 +347,14 @@ LteEnbNetDevice::SetCsgIndication (bool csgIndication)
   UpdateConfig (); // propagate the change to RRC level
 }
 
-std::map < uint8_t, Ptr<ComponentCarrierBaseStation> >
-LteEnbNetDevice::GetCcMap () const
+std::map < uint8_t, Ptr<ComponentCarrierEnb> >
+LteEnbNetDevice::GetCcMap ()
 {
   return m_ccMap;
 }
 
 void
-LteEnbNetDevice::SetCcMap (std::map< uint8_t, Ptr<ComponentCarrierBaseStation> > ccm)
+LteEnbNetDevice::SetCcMap (std::map< uint8_t, Ptr<ComponentCarrierEnb> > ccm)
 {
   NS_ASSERT_MSG (!m_isConfigured, "attempt to set CC map after configuration");
   m_ccMap = ccm;
@@ -366,7 +366,8 @@ LteEnbNetDevice::DoInitialize (void)
   NS_LOG_FUNCTION (this);
   m_isConstructed = true;
   UpdateConfig ();
-  for (auto it = m_ccMap.begin (); it != m_ccMap.end (); ++it)
+  std::map< uint8_t, Ptr<ComponentCarrierEnb> >::iterator it;
+  for (it = m_ccMap.begin (); it != m_ccMap.end (); ++it)
     {
        it->second->Initialize ();
     }
@@ -386,10 +387,8 @@ LteEnbNetDevice::DoInitialize (void)
 bool
 LteEnbNetDevice::Send (Ptr<Packet> packet, const Address& dest, uint16_t protocolNumber)
 {
-  NS_LOG_FUNCTION (this << packet << dest << protocolNumber);
-  NS_ABORT_MSG_IF (protocolNumber != Ipv4L3Protocol::PROT_NUMBER
-                   && protocolNumber != Ipv6L3Protocol::PROT_NUMBER,
-                   "unsupported protocol " << protocolNumber << ", only IPv4 and IPv6 are supported");
+  NS_LOG_FUNCTION (this << packet   << dest << protocolNumber);
+  NS_ASSERT_MSG (protocolNumber == Ipv4L3Protocol::PROT_NUMBER || protocolNumber == Ipv6L3Protocol::PROT_NUMBER, "unsupported protocol " << protocolNumber << ", only IPv4/IPv6 is supported");
   return m_rrc->SendData (packet);
 }
 

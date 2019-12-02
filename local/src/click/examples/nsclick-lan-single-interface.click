@@ -1,0 +1,1 @@
+/home/sid/hove/src/click/examples/nsclick-lan-single-interface.click

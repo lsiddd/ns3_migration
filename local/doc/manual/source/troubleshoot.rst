@@ -1,0 +1,1 @@
+/home/sid/hove/doc/manual/source/troubleshoot.rst

@@ -482,7 +482,7 @@ public:
   //
 
   /**
-   * Send handover request function
+   * Send handover request functon
    * \param params the hadnover request parameters
    */
   virtual void SendHandoverRequest (HandoverRequestParams params);

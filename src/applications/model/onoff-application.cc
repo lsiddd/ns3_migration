@@ -142,7 +142,6 @@ OnOffApplication::DoDispose (void)
 {
   NS_LOG_FUNCTION (this);
 
-  CancelEvents ();
   m_socket = 0;
   // chain up
   Application::DoDispose ();

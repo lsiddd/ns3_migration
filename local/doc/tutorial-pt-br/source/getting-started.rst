@@ -1,0 +1,1 @@
+/home/sid/hove/doc/tutorial-pt-br/source/getting-started.rst
