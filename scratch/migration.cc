@@ -42,9 +42,9 @@ void onOffApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void WriteUntilBufferFull(Ptr<Socket>, uint32_t);
 void StartFlow(Ptr<Socket>, Ipv4Address, uint16_t);
-static void CwndTracer(uint32_t, uint32_t);
 
-const float PI = 3.14159265;
+
+float PI = 3.14159265;
 
 // scenario variables
 const uint16_t numEnbs = 2;
@@ -76,6 +76,8 @@ Time interPacketInterval = MilliSeconds(1);
 
 // control matrix
 int cell_ue[numEnbs][numNodes];
+// edge servers responsible for each node
+int edge_ue[numEdgeNodes][numNodes];
 
 // IP addres of all fog nodes
 Ipv4Address fogNodesAddresses[numEdgeNodes];
@@ -290,7 +292,6 @@ void onOffApplication(Ptr<Node> ueNode,
     Ipv4Address ueIpIface)
 {
 
-    // todo: update ports sequentially
     uint16_t servPort = applicationPort;
     std::cout << "requesting application on port " << applicationPort << "\n";
     applicationPort++;
@@ -346,10 +347,25 @@ void WriteUntilBufferFull(Ptr<Socket> localSocket, uint32_t txSpace)
     localSocket->Close();
 }
 
+int getCellId(int imsi) {
+    // start this variable at an arbitrary value
+    int cell = 6666;
+    for (int i = 0; i < numNodes; ++i) {
+            for (int j = 0; j < numEdgeNodes; ++j){
+                if (cell_ue[j][i] != 0){
+                    std::cout << "user " << i << " connected to cell " << j << "\n";
+                    cell = j;
+                }
+            }
+    }
+    NS_ASSERT_MSG(cell != 6666, "serving cell not found.");
+    // do { (void)sizeof (cell != 6666); } while (false);
+    return cell;
+
+}
 
 int main(int argc, char* argv[])
 {
-
     // logs enabled
     // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
     // LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
@@ -426,7 +442,7 @@ int main(int argc, char* argv[])
     NodeContainer ueNodes;
     NodeContainer enbNodes;
     NodeContainer edgeNodes;
-
+    
     enbNodes.Create(numEnbs);
     ueNodes.Create(numNodes);
     edgeNodes.Create(numEdgeNodes);
@@ -449,7 +465,6 @@ int main(int argc, char* argv[])
         fogNodesAddresses[i] = internetIpIfaces.GetAddress(1);
 
         // add network routes to fog nodes
-        // todo: add routes from nodes to fog nodes
         Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(i)->GetObject<Ipv4>());
         remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
         p2ph.EnablePcapAll("lena-simple-epc-backhaul");
@@ -532,9 +547,8 @@ int main(int argc, char* argv[])
     // --------------------EVENTS-----------------------------------------
 
     //service requests-------------------
-    // for (int j = 0; j < numEdgeNodes; ++j)
-    //   for (int i = 0; i < numNodes; ++i)
-    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(j), fogNodesAddresses[j], ueIpIface.GetAddress(i));
+      for (int i = 0; i < numNodes; ++i)
+        onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i], ueIpIface.GetAddress(i));
 
     //   Simulator::Schedule(Seconds(10), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
 
@@ -545,12 +559,21 @@ int main(int argc, char* argv[])
     //     onOffApplication(edgeNodes.Get(i), ueNodes.Get(i), ueIpIface.GetAddress(i), fogNodesAddresses[i]);
     // }
 
-    Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
+    // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
     //   Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
+
+    // callbacks from handover events
+    Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/ConnectionEstablished",
+        MakeCallback(&NotifyConnectionEstablishedUe));
+    Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverStart",
+        MakeCallback(&NotifyHandoverStartUe));
+    Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverEndOk",
+        MakeCallback(&NotifyHandoverEndOkUe));
+
 
     // intall flow monitor and get stats
     FlowMonitorHelper flowmon;

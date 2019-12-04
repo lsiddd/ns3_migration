@@ -503,57 +503,29 @@ LteHelper::InstallUeDevice (NodeContainer c)
 Ptr<NetDevice>
 LteHelper::InstallSingleEnbDevice (Ptr<Node> n)
 {
-  NS_LOG_FUNCTION (this << n);
-  uint16_t cellId;
-
-  // -----CHECK IF THE MARKOV SIMULATION IF BEING RUN---------------
-  static int cell_iter_dataset = 1;
-  NS_LOG_UNCOND("cell iter: " << cell_iter_dataset);
-    std::ifstream cellsDataset("CellsDataset");
-
-    int a, lineCounter = 1;
-    double b, c;
-    char d;
-    while(cellsDataset >> a >> b >> c >> d)
-    {
-      if (cell_iter_dataset == lineCounter)
-      {
-        cellId = a;
-        NS_LOG_UNCOND("a value:" << a);
-      }
-      NS_LOG_UNCOND("line counter:" << lineCounter);
-      lineCounter++;
-    }
-    NS_LOG_UNCOND(cellId);
-    cell_iter_dataset++;
-
-  // -----CHECK IF THE MARKOV SIMULATION IF BEING RUN---------------
+  uint16_t cellId = m_cellIdCounter; // \todo Remove, eNB has no cell ID
 
   Ptr<LteEnbNetDevice> dev = m_enbNetDeviceFactory.Create<LteEnbNetDevice> ();
   Ptr<LteHandoverAlgorithm> handoverAlgorithm = m_handoverAlgorithmFactory.Create<LteHandoverAlgorithm> ();
 
-  NS_ABORT_MSG_IF (m_componentCarrierPhyParams.size() != 0, "CC map is not clean");
-  DoComponentCarrierConfigure (dev->GetUlEarfcn (), dev->GetDlEarfcn (),
-                               dev->GetUlBandwidth (), dev->GetDlBandwidth ());
-  NS_ABORT_MSG_IF (m_componentCarrierPhyParams.size() != m_noOfCcs,
-                   "CC map size (" << m_componentCarrierPhyParams.size () <<
-                   ") must be equal to number of carriers (" <<
-                   m_noOfCcs << ")");
+  if (m_componentCarrierPhyParams.size() == 0)
+    {
+      DoComponentCarrierConfigure (dev->GetUlEarfcn (), dev->GetDlEarfcn (), dev->GetUlBandwidth (), dev->GetDlBandwidth ());
+    }
 
+  NS_ASSERT_MSG(m_componentCarrierPhyParams.size()!=0, "Cannot create enb ccm map.");
   // create component carrier map for this eNb device
   std::map<uint8_t,Ptr<ComponentCarrierEnb> > ccMap;
-  for (std::map<uint8_t, ComponentCarrier >::iterator it = m_componentCarrierPhyParams.begin ();
-       it != m_componentCarrierPhyParams.end ();
-       ++it)
+  for (std::map<uint8_t, ComponentCarrier >::iterator it = m_componentCarrierPhyParams.begin (); it != m_componentCarrierPhyParams.end (); ++it)
     {
-      Ptr <ComponentCarrierEnb> cc = CreateObject<ComponentCarrierEnb> ();
-      cc->SetUlBandwidth (it->second.GetUlBandwidth ());
-      cc->SetDlBandwidth (it->second.GetDlBandwidth ());
-      cc->SetDlEarfcn (it->second.GetDlEarfcn ());
-      cc->SetUlEarfcn (it->second.GetUlEarfcn ());
-      cc->SetAsPrimary (it->second.IsPrimary ());
+      Ptr <ComponentCarrierEnb> cc =  CreateObject<ComponentCarrierEnb> ();
+      cc->SetUlBandwidth(it->second.GetUlBandwidth());
+      cc->SetDlBandwidth(it->second.GetDlBandwidth());
+      cc->SetDlEarfcn(it->second.GetDlEarfcn());
+      cc->SetUlEarfcn(it->second.GetUlEarfcn());
+      cc->SetAsPrimary(it->second.IsPrimary());
       NS_ABORT_MSG_IF (m_cellIdCounter == 65535, "max num cells exceeded");
-      cc->SetCellId (cellId);
+      cc->SetCellId (m_cellIdCounter++);
       ccMap [it->first] =  cc;
     }
   // CC map is not needed anymore
