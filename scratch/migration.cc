@@ -47,14 +47,17 @@ void StartFlow(Ptr<Socket>, Ipv4Address, uint16_t);
 float PI = 3.14159265;
 
 // scenario variables
-const uint16_t numEnbs = 2;
-const uint16_t numNodes = 2;
+const uint16_t numEnbs = 5;
+const uint16_t numNodes = 5;
 const uint16_t numEdgeNodes = numEnbs;
 
 // port ranges for each application
 static int migrationPort = 1000;
 static int pingPort = 2000;
 static int applicationPort = 3000;
+
+// use TCP or UDP in the flows
+std::string transmissionMode = "UDP";
 
 unsigned int handNumber = 0; // number of handovers executed
 
@@ -80,7 +83,9 @@ int cell_ue[numEnbs][numNodes];
 int edge_ue[numEdgeNodes][numNodes];
 
 // IP addres of all fog nodes
-Ipv4Address fogNodesAddresses[numEdgeNodes];
+// the ith server has two addresses, the 7.0.0.X base to communicate with nodes
+// and the 22.0.0.X base for migrations
+Ipv4Address fogNodesAddresses[numEdgeNodes][2];
 
 // TCP parameters
 static uint64_t totalTxBytes[numNodes]; // limit for each node
@@ -257,24 +262,51 @@ void migrate(Ptr<Node> sourceServer,
     Ipv4Address sourceServerAddress,
     Ipv4Address targetServerAddress)
 {
-    uint16_t servPort = migrationPort;
-    std::cout << "starting migration on port " << migrationPort << "\n";
-    migrationPort++;
+    NS_ASSERT_MSG(transmissionMode == "UDP" || transmissionMode == "TCP", "Invalid transmission mode.");
+    if (transmissionMode == "UDP") {
+        uint16_t port = 4000;
+        uint16_t servPort = migrationPort;
+        UdpServerHelper server (migrationPort);
+        ApplicationContainer apps = server.Install (targetServer);
+        apps.Start (Simulator::Now());
+        // apps.Stop (Seconds (10.0));
 
-    // Create a packet sink to receive these packets on n2...
-    PacketSinkHelper sink("ns3::TcpSocketFactory",
-        InetSocketAddress(Ipv4Address::GetAny(), servPort));
+        //
+        // Create one UdpClient application to send UDP datagrams from node zero to
+        // node one.
+        //
 
-    ApplicationContainer apps = sink.Install(targetServer);
-    apps.Start(Seconds(0.0));
+        uint32_t MaxPacketSize = 1024;
+        Time interPacketInterval = MilliSeconds (1);
+        uint32_t maxPacketCount = 320;
+        UdpClientHelper client (targetServerAddress, migrationPort);
+        client.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+        client.SetAttribute ("Interval", TimeValue (interPacketInterval));
+        client.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
+        apps = client.Install (sourceServer);
+        apps.Start (Simulator::Now());
+        // apps.Stop (Seconds (10.0));
+    }
+    else if (transmissionMode == "TCP") {
+        uint16_t servPort = migrationPort;
+        std::cout << "starting migration on port " << migrationPort << "\n";
+        migrationPort++;
 
-    Ptr<Socket> localSocket = Socket::CreateSocket(sourceServer, TcpSocketFactory::GetTypeId());
-    localSocket->Bind();
+        // Create a packet sink to receive these packets on n2...
+        PacketSinkHelper sink("ns3::TcpSocketFactory",
+            InetSocketAddress(Ipv4Address::GetAny(), servPort));
 
-    // Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow", MakeCallback(&CwndTracer));
+        ApplicationContainer apps = sink.Install(targetServer);
+        apps.Start(Seconds(0.0));
 
-    Simulator::ScheduleNow(&StartFlow, localSocket,
-        sourceServerAddress, servPort);
+        Ptr<Socket> localSocket = Socket::CreateSocket(sourceServer, TcpSocketFactory::GetTypeId());
+        localSocket->Bind();
+
+        // Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow", MakeCallback(&CwndTracer));
+
+        Simulator::ScheduleNow(&StartFlow, localSocket,
+            sourceServerAddress, servPort);
+    }
 }
 
 void stopFlow(int i)
@@ -367,9 +399,9 @@ int getCellId(int imsi) {
 int main(int argc, char* argv[])
 {
     // logs enabled
-    // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
-    // LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
-    // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
+    LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
+    LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
+    LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
 
@@ -385,7 +417,7 @@ int main(int argc, char* argv[])
     // fill all fog resources with base OS + application files
     std::fill(resources, resources + numEdgeNodes, 2);
     // set the max bytes tranferred by each request
-    std::fill(totalTxBytes, totalTxBytes + numEdgeNodes, 0);
+    std::fill(totalTxBytes, totalTxBytes + numEdgeNodes, 9999999990);
 
     // simulation variables
     Time simTime = Seconds(20);
@@ -462,7 +494,7 @@ int main(int argc, char* argv[])
         NetDeviceContainer internetDevices = p2ph.Install(pgw, edgeNodes.Get(i));
         Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
         // interface 0 is localhost, 1 is the p2p device
-        fogNodesAddresses[i] = internetIpIfaces.GetAddress(1);
+        fogNodesAddresses[i][0] = internetIpIfaces.GetAddress(1);
 
         // add network routes to fog nodes
         Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(i)->GetObject<Ipv4>());
@@ -514,11 +546,12 @@ int main(int argc, char* argv[])
         p2ph.SetDeviceAttribute("DataRate", DataRateValue(edgeLinkDataRate));
         p2ph.SetDeviceAttribute("Mtu", UintegerValue(edgeLinkMtu));
         p2ph.SetChannelAttribute("Delay", TimeValue(edgeLinkDelay));
-        if (i < numEdgeNodes - 1)
+        if (i < numEdgeNodes - 1){
             edgeDevices = p2ph.Install(edgeNodes.Get(i), edgeNodes.Get(i + 1));
-
-        Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(edgeDevices);
-        edgeIpv4AddressHelper.NewNetwork();
+            Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(edgeDevices);
+            fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(1);
+        }
+        // edgeIpv4AddressHelper.NewNetwork();
     }
 
     // Install the IP stack on the UEs
@@ -546,9 +579,9 @@ int main(int argc, char* argv[])
 
     // --------------------EVENTS-----------------------------------------
 
-    //service requests-------------------
-      for (int i = 0; i < numNodes; ++i)
-        onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i], ueIpIface.GetAddress(i));
+    // //service requests-------------------
+    //   for (int i = 0; i < numNodes; ++i)
+    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i][0], ueIpIface.GetAddress(i));
 
     //   Simulator::Schedule(Seconds(10), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
 
@@ -561,7 +594,7 @@ int main(int argc, char* argv[])
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    //   Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
+      Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
