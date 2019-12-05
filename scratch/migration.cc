@@ -29,11 +29,12 @@
 #include "ns3/netanim-module.h"
 #include "ns3/flow-monitor-helper.h"
 #include "ns3/ipv4-flow-classifier.h"
+#include "ns3/csma-module.h"
 #include <stdlib.h> /* srand, rand */
 // #include "ns3/gtk-config-store.h"
 #include <sys/stat.h> // file permissions
 // Used for cell allocation
-#include <math.h>
+#include <math.h> // sin cos
 
 using namespace ns3;
 
@@ -399,11 +400,11 @@ int getCellId(int imsi) {
 int main(int argc, char* argv[])
 {
     // logs enabled
-    LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
-    LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
-    LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
-    LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-    LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
+    // LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
+    // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
+    // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
+    // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
 
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
@@ -534,25 +535,15 @@ int main(int argc, char* argv[])
     s1uIpv4AddressHelper.SetBase("10.0.0.0", "255.255.255.0");
     edgeIpv4AddressHelper.SetBase("22.0.0.0", "255.255.255.0");
 
-    for (int i = 0; i < numEdgeNodes; ++i) {
-
-        NetDeviceContainer edgeDevices;
-
-        PointToPointHelper p2ph;
-        DataRate edgeLinkDataRate = DataRate("10Gb/s");
-        uint16_t edgeLinkMtu = 2000;
-        Time edgeLinkDelay = Time(0);
-
-        p2ph.SetDeviceAttribute("DataRate", DataRateValue(edgeLinkDataRate));
-        p2ph.SetDeviceAttribute("Mtu", UintegerValue(edgeLinkMtu));
-        p2ph.SetChannelAttribute("Delay", TimeValue(edgeLinkDelay));
-        if (i < numEdgeNodes - 1){
-            edgeDevices = p2ph.Install(edgeNodes.Get(i), edgeNodes.Get(i + 1));
-            Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(edgeDevices);
-            fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(1);
-        }
-        // edgeIpv4AddressHelper.NewNetwork();
+    CsmaHelper csma;
+    csma.SetChannelAttribute ("DataRate", StringValue ("100Gbps"));
+    csma.SetChannelAttribute ("Delay", StringValue ("0ms"));
+    NetDeviceContainer d2345 = csma.Install (edgeNodes);
+    Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(d2345);
+    for (int i = 0; i < edgeIpIfaces.GetN(); ++i) {
+        fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(i);
     }
+    NS_LOG_UNCOND(edgeIpIfaces.GetAddress(0));
 
     // Install the IP stack on the UEs
     internet.Install(ueNodes);
@@ -594,7 +585,7 @@ int main(int argc, char* argv[])
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-      Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
+    Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(4), fogNodesAddresses[0][1], fogNodesAddresses[4][1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
