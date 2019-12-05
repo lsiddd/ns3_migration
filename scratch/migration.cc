@@ -43,14 +43,20 @@ void onOffApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void WriteUntilBufferFull(Ptr<Socket>, uint32_t);
 void StartFlow(Ptr<Socket>, Ipv4Address, uint16_t);
+void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 
-
-float PI = 3.14159265;
+// pi
+float PI = 3.14159265; // pi
 
 // scenario variables
+const uint16_t numNodes = 20;
 const uint16_t numEnbs = 5;
-const uint16_t numNodes = 5;
 const uint16_t numEdgeNodes = numEnbs;
+
+// inicialize node containers as global objects
+NodeContainer ueNodes;
+NodeContainer edgeNodes;
+NodeContainer enbNodes;
 
 // port ranges for each application
 static int migrationPort = 1000;
@@ -72,6 +78,12 @@ uint16_t serverLoad[numEdgeNodes];
 
 Time managerInterval = MilliSeconds(100);
 
+// size of the sevices to be migrated in bytes
+uint64_t migrationSize = 2000000000;
+
+// data rate of the migration
+// uint64_t migrationDataRate = ;
+
 bool rowTopology = false;
 bool randomCellAlloc = true;
 
@@ -85,7 +97,8 @@ int edge_ue[numEdgeNodes][numNodes];
 
 // IP addres of all fog nodes
 // the ith server has two addresses, the 7.0.0.X base to communicate with nodes
-// and the 22.0.0.X base for migrations
+// and the 22.0.0.X
+//  base for migrations
 Ipv4Address fogNodesAddresses[numEdgeNodes][2];
 
 // TCP parameters
@@ -135,6 +148,9 @@ void NotifyHandoverStartUe(std::string context,
     std::stringstream ueId;
     ueId << "./v2x_temp/" << cellid << "/" << rnti;
     remove(ueId.str().c_str());
+
+    Simulator::Schedule(Simulator::Now(), &migrate, edgeNodes.Get(cellid - 1), 
+    edgeNodes.Get(targetCellId - 1), fogNodesAddresses[cellid - 1][1], fogNodesAddresses[targetCellId - 1][1]);
 
     ++handNumber;
 }
@@ -264,13 +280,17 @@ void migrate(Ptr<Node> sourceServer,
     Ipv4Address targetServerAddress)
 {
     NS_ASSERT_MSG(transmissionMode == "UDP" || transmissionMode == "TCP", "Invalid transmission mode.");
+
+    std::cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     if (transmissionMode == "UDP") {
-        uint16_t port = 4000;
+        uint16_t port = migrationPort;
+        ++migrationPort;
         uint16_t servPort = migrationPort;
         UdpServerHelper server (migrationPort);
         ApplicationContainer apps = server.Install (targetServer);
         apps.Start (Simulator::Now());
-        // apps.Stop (Seconds (10.0));
+        // apps.Stop (Simulator::Now()+Seconds(5));
+        apps.Stop (Seconds (10.0));
 
         //
         // Create one UdpClient application to send UDP datagrams from node zero to
@@ -278,15 +298,16 @@ void migrate(Ptr<Node> sourceServer,
         //
 
         uint32_t MaxPacketSize = 1024;
-        Time interPacketInterval = MilliSeconds (1);
-        uint32_t maxPacketCount = 320;
+        uint32_t maxPacketCount = migrationSize / MaxPacketSize;
+        // tyr to migrate this in 10 senconds at most
+        Time interPacketInterval = Seconds (10 / maxPacketCount);
         UdpClientHelper client (targetServerAddress, migrationPort);
         client.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
         client.SetAttribute ("Interval", TimeValue (interPacketInterval));
         client.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
         apps = client.Install (sourceServer);
         apps.Start (Simulator::Now());
-        // apps.Stop (Seconds (10.0));
+        apps.Stop (Simulator::Now() + Seconds (10.0));
     }
     else if (transmissionMode == "TCP") {
         uint16_t servPort = migrationPort;
@@ -400,11 +421,11 @@ int getCellId(int imsi) {
 int main(int argc, char* argv[])
 {
     // logs enabled
-    // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_ALL);
-    // LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
+    LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
+    LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
     // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
-    // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-    // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_ALL);
+    LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_ALL);
 
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
@@ -466,15 +487,21 @@ int main(int argc, char* argv[])
     lteHelper->SetEnbAntennaModelAttribute("Beamwidth", DoubleValue(60));
     lteHelper->SetEnbAntennaModelAttribute("MaxGain", DoubleValue(0.0));
 
+    // Handover configuration
+    lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
+    lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(3.0));
+    lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
+        TimeValue(MilliSeconds(256)));
+
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
     // create internet stack
     InternetStackHelper internet;
 
     // create users, enbs and fog nodes
-    NodeContainer ueNodes;
-    NodeContainer enbNodes;
-    NodeContainer edgeNodes;
+    // NodeContainer ueNodes;
+    // NodeContainer enbNodes;
+    // NodeContainer edgeNodes;
     
     enbNodes.Create(numEnbs);
     ueNodes.Create(numNodes);
@@ -585,7 +612,14 @@ int main(int argc, char* argv[])
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    Simulator::Schedule(Seconds(5), & migrate, edgeNodes.Get(0), edgeNodes.Get(4), fogNodesAddresses[0][1], fogNodesAddresses[4][1]);
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 2; ++j){
+            if (i == j)
+                continue;
+            std::cout << "starting migration from " << i << " to " << j << ".\n";
+            Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i), 
+                    edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
+        }
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
