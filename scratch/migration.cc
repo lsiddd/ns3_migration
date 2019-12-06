@@ -49,7 +49,7 @@ void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 float PI = 3.14159265; // pi
 
 // scenario variables
-const uint16_t numNodes = 20;
+const uint16_t numNodes = 0;
 const uint16_t numEnbs = 5;
 const uint16_t numEdgeNodes = numEnbs;
 
@@ -58,10 +58,18 @@ NodeContainer ueNodes;
 NodeContainer edgeNodes;
 NodeContainer enbNodes;
 
+// ApplicationContariners
+ApplicationContainer apps;
+
 // port ranges for each application
 static int migrationPort = 1000;
 static int pingPort = 2000;
 static int applicationPort = 3000;
+
+// enable logs
+bool verbose = true;
+// perform migrations
+bool doMigrate = true;
 
 // use TCP or UDP in the flows
 std::string transmissionMode = "UDP";
@@ -133,6 +141,7 @@ void NotifyConnectionEstablishedUe(std::string context,
     outfile.close();
 
     cell_ue[cellid - 1][imsi - 1] = rnti;
+
 }
 
 void NotifyHandoverStartUe(std::string context,
@@ -250,8 +259,19 @@ void ArrayPositionAllocator(Ptr<ListPositionAllocator> HpnPosition)
 void manager()
 {
     // todo
+
     std::cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
     Simulator::Schedule(managerInterval, &manager);
+
+    // test application stop
+    std::cout << "Applications on node 0: " << edgeNodes.Get(0)->GetNApplications() << "\n";
+    std::cout << "Applications on node 1: " << edgeNodes.Get(1)->GetNApplications() << "\n";
+    if (Simulator::Now() > Seconds(5)) {
+        Ptr <Application> sourceApp = edgeNodes.Get(0)->GetApplication(0);
+        Ptr <Application> destApp = edgeNodes.Get(1)->GetApplication(0);
+        sourceApp->StopApplication();
+        destApp->StopApplication();
+    }
 }
 
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
@@ -279,18 +299,22 @@ void migrate(Ptr<Node> sourceServer,
     Ipv4Address sourceServerAddress,
     Ipv4Address targetServerAddress)
 {
-    NS_ASSERT_MSG(transmissionMode == "UDP" || transmissionMode == "TCP", "Invalid transmission mode.");
+
+    // return if migration is not available
+    if (!doMigrate)
+        return;
+
+    // make sure the transmission uses only udp (for now)
+    NS_ASSERT_MSG(transmissionMode != "TCP", "TCP migration not implemented.");
+    NS_ASSERT_MSG(transmissionMode == "UDP", "Invalid transmission mode.");
 
     std::cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     if (transmissionMode == "UDP") {
-        uint16_t port = migrationPort;
         ++migrationPort;
-        uint16_t servPort = migrationPort;
         UdpServerHelper server (migrationPort);
         ApplicationContainer apps = server.Install (targetServer);
         apps.Start (Simulator::Now());
         // apps.Stop (Simulator::Now()+Seconds(5));
-        apps.Stop (Seconds (10.0));
 
         //
         // Create one UdpClient application to send UDP datagrams from node zero to
@@ -300,14 +324,13 @@ void migrate(Ptr<Node> sourceServer,
         uint32_t MaxPacketSize = 1024;
         uint32_t maxPacketCount = migrationSize / MaxPacketSize;
         // tyr to migrate this in 10 senconds at most
-        Time interPacketInterval = Seconds (10 / maxPacketCount);
+        Time interPacketInterval = MilliSeconds (100);
         UdpClientHelper client (targetServerAddress, migrationPort);
         client.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
         client.SetAttribute ("Interval", TimeValue (interPacketInterval));
         client.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
         apps = client.Install (sourceServer);
         apps.Start (Simulator::Now());
-        apps.Stop (Simulator::Now() + Seconds (10.0));
     }
     else if (transmissionMode == "TCP") {
         uint16_t servPort = migrationPort;
@@ -421,11 +444,13 @@ int getCellId(int imsi) {
 int main(int argc, char* argv[])
 {
     // logs enabled
-    LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
-    LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
-    // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
-    LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_ALL);
-    LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_ALL);
+    if (verbose) {
+        LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
+        LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
+        // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
+        LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_ALL);
+        LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_ALL);
+    }
 
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
@@ -567,7 +592,7 @@ int main(int argc, char* argv[])
     csma.SetChannelAttribute ("Delay", StringValue ("0ms"));
     NetDeviceContainer d2345 = csma.Install (edgeNodes);
     Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(d2345);
-    for (int i = 0; i < edgeIpIfaces.GetN(); ++i) {
+    for (uint32_t i = 0; i < edgeIpIfaces.GetN(); ++i) {
         fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(i);
     }
     NS_LOG_UNCOND(edgeIpIfaces.GetAddress(0));
@@ -612,14 +637,20 @@ int main(int argc, char* argv[])
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    for (int i = 0; i < 2; ++i)
-        for (int j = 0; j < 2; ++j){
-            if (i == j)
-                continue;
-            std::cout << "starting migration from " << i << " to " << j << ".\n";
-            Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i), 
-                    edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
-        }
+    // for (int i = 0; i < 2; ++i)
+    //     for (int j = 0; j < 2; ++j){
+    //         if (i == j)
+    //             continue;
+    //         std::cout << "starting migration from " << i << " to " << j << ".\n";
+    //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i), 
+    //                 edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
+    //     }
+
+    Simulator::Schedule(Seconds(2), & migrate, edgeNodes.Get(1), 
+                    edgeNodes.Get(0), fogNodesAddresses[1][1], fogNodesAddresses[0][1]);
+
+    Simulator::Schedule(Seconds(2), & migrate, edgeNodes.Get(0), 
+                    edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
