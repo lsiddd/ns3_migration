@@ -267,10 +267,6 @@ void manager()
 
     std::cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
     Simulator::Schedule(managerInterval, &manager);
-
-    // test application stop
-    std::cout << "Applications on node 0: " << edgeNodes.Get(0)->GetNApplications() << "\n";
-    std::cout << "Applications on node 1: " << edgeNodes.Get(1)->GetNApplications() << "\n";
 }
 
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
@@ -325,7 +321,7 @@ void migrate(Ptr<Node> sourceServer,
         uint32_t MaxPacketSize = 1024;
         uint32_t maxPacketCount = migrationSize / MaxPacketSize;
         // tyr to migrate this in 10 senconds at most
-        Time interPacketInterval = MilliSeconds(100);
+        Time interPacketInterval = MilliSeconds(1);
         UdpClientHelper client(targetServerAddress, migrationPort);
         client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
         client.SetAttribute("Interval", TimeValue(interPacketInterval));
@@ -445,6 +441,7 @@ int main(int argc, char* argv[])
         LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_ALL);
         LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_ALL);
     }
+    LogComponentEnable("HoveHandoverAlgorithm", LOG_LEVEL_ALL);
 
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
@@ -504,8 +501,8 @@ int main(int argc, char* argv[])
     lteHelper->SetEnbAntennaModelAttribute("MaxGain", DoubleValue(0.0));
 
     // Handover configuration
-    lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
-    // lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(3.0));
+    lteHelper->SetHandoverAlgorithmType("ns3::HoveHandoverAlgorithm");
+    // lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(1.0));
     // lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
     //     TimeValue(MilliSeconds(256)));
 
@@ -561,7 +558,7 @@ int main(int argc, char* argv[])
     mobilityEnb.Install(enbNodes);
 
     // Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/SanFrancisco.tcl");
-    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("/home/lucas/Downloads/bonnmotion-3.0.1/bin/scenario1.ns_movements");
+    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/bonnmotion_random_waypoint.tcl");
     MobilityHelper ueMobility;
     MobilityHelper enbMobility;
 

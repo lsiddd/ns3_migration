@@ -120,7 +120,7 @@ private:
        uint8_t servingCellRsrq, uint16_t measId, uint16_t servingCellId);
    void PredictPositions (uint16_t imsi);
    // double *GetPositions(int imsi, std::string path);
-   void GetPositions(int imsi, std::string path);
+   std::vector<int> GetPositions(int imsi, std::string path);
          /**
    * Determines if a neighbour cell is a valid destination for handover.
    * Currently always return true.

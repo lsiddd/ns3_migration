@@ -34,6 +34,8 @@
 #include "ns3/core-module.h"
 namespace ns3 {
 
+using namespace std;
+
 NS_LOG_COMPONENT_DEFINE("HoveHandoverAlgorithm");
 
 NS_OBJECT_ENSURE_REGISTERED(HoveHandoverAlgorithm);
@@ -184,123 +186,36 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
         double cell[it1->second.size() + 1][4];
         double soma[n_c];
         double soma_res = 0;
-        double qosAtual = 0;
-        double qoeAtual = 0;
-
-        std::stringstream qoeFileName;
-        std::stringstream qosFileName;
-        std::string qoeResult;
-        std::string qosResult;
-
-        std::stringstream qoeRnti;
-        std::stringstream qosRnti;
-
 
         while (rntiFile >> imsi) {}
 
-        qoeRnti << "v2x_temp/qoeTorre" << servingCellId;
-        std::ifstream qoeRntiFile;
-        qoeRntiFile.open(qoeRnti.str());
-
-        qosRnti << "v2x_temp/qosTorre" << servingCellId;
-        std::ifstream qosRntiFile;
-        qosRntiFile.open(qosRnti.str());
-
-        if (qoeRntiFile.is_open()) {
-            while (qoeRntiFile >> qoeAtual) {}
-        }
-
-        if (qosRntiFile.is_open()) {
-            while (qosRntiFile >> qosAtual) {}
-        }
-
-        if (qosAtual < 0)
-            qosAtual = 0;
-
         for (it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
-            std::stringstream qoeFileName;
-            std::stringstream qosFileName;
-            std::string qoeResult;
-            std::string qosResult;
-
-            qoeFileName << "v2x_temp/qoeTorre" << (uint16_t)it2->first;
-            qosFileName << "v2x_temp/qosTorre" << (uint16_t)it2->first;
-
-            std::ifstream qosFile(qosFileName.str());
-            std::ifstream qoeFile(qoeFileName.str());
-
             cell[cell_iterator][0] = (uint16_t)it2->second->m_rsrq;
-
-            if (qoeFile.fail() || qoeFile.peek() == std::ifstream::traits_type::eof())
-                cell[cell_iterator][1] = 0;
-            else
-                while (qoeFile >> qoeResult)
-                    cell[cell_iterator][1] = stod(qoeResult);
-
-            if (qosFile.fail() || qosFile.peek() == std::ifstream::traits_type::eof())
-                cell[cell_iterator][2] = 0;
-            else
-                while (qosFile >> qosResult)
-                    cell[cell_iterator][2] = stod(qosResult);
 
             cell[cell_iterator][3] = it2->first;
             ++cell_iterator;
         }
 
-        qoeFileName << "./v2x_temp/qoeTorre" << servingCellId;
-        qosFileName << "./v2x_temp/qosTorre" << servingCellId;
-
-        std::ifstream qosFile(qosFileName.str());
-        std::ifstream qoeFile(qoeFileName.str());
-
         cell[cell_iterator][0] = (uint16_t)servingCellRsrq;
-        if (qoeAtual)
-            cell[cell_iterator][1] = qoeAtual;
-        else {
-            cell[cell_iterator][1] = 0;
-        }
-        if (qosAtual)
-            cell[cell_iterator][2] = qosAtual;
-        else
-            cell[cell_iterator][2] = 0;
         cell[cell_iterator][3] = servingCellId;
 
         for (int k = 0; k < n_c; ++k) {
             soma[k] =  cell[k][0] * 0.14;
-            soma[k] += cell[k][1] * 0.28;
-            soma[k] += cell[k][2] * 0.57;
 
             NS_LOG_DEBUG("cell [" << k << "][0]: " << cell[k][0]);
-            NS_LOG_DEBUG("cell [" << k << "][1]: " << cell[k][1]);
-            NS_LOG_DEBUG("cell [" << k << "][2]: " << cell[k][2]);
-
             NS_LOG_DEBUG("sum for cell " << k << " :" << soma[k]);
         }
 
         for (int k = 0; k < n_c; ++k) {
-            if (soma[k] > soma_res && cell[k][0] != 0 && cell[k][0] > servingCellRsrq) {
+            if (soma[k] > soma_res && cell[k][0] != 0 ) { // && cell[k][0] > servingCellRsrq) {
                 bestNeighbourCellRsrq = cell[k][0];
                 bestNeighbourCellId = cell[k][3];
                 soma_res = soma[k];
             }
         }
 
-        GetPositions(imsi, "mobil/carroTrace.tcl");
-
-        double dist_soma = 0;
-        for (int i = 0; i < n_c; ++i) {
-            dist_soma = 0;
-            for (int j = 0; j < 20; ++j) {
-                dist_soma += m_dist[i][j];
-            }
-            std::cout << "Node " << imsi << " is on average " << dist_soma / 20 << " meters away from cell " << i + 1 << "\n";
-
-            if (dist_soma) {
-                dist_soma = dist_soma / 10000;
-                soma[i] = soma[i] / dist_soma;
-                NS_LOG_DEBUG("soma[" << i << "] " << soma[i] << " dist_soma " << dist_soma);
-            }
-        }
+        // todo: receive this string as an attribute
+        std::vector<int> diatances =  GetPositions(imsi, "mobil/bonnmotion_random_waypoint.tcl");
 
         NS_LOG_INFO("\n\n\n------------------------------------------------------------------------");
         NS_LOG_INFO("Measured at: " << Simulator::Now().GetSeconds() << " Seconds.\nIMSI:" << imsi << "\nRNTI: " << rnti << "\n");
@@ -357,15 +272,20 @@ bool HoveHandoverAlgorithm::IsValidNeighbour(uint16_t cellId)
     return true;
 }
 
-void HoveHandoverAlgorithm::GetPositions(int imsi, std::string path) 
+std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path) 
 {
     // path = the mobility file being used
     // imsi = the user to be predicted = nodeid - 1
 
     // coordinate variables
     double x, y, z;
+    int seconds_to_consider = 5;
+    std::vector <int> distances;
+    std::vector <int> distances_future;
+    std::string::size_type sz;     // alias of size_t
 
     // tmp veriables to read file
+    // aux3 = time of the position
     std::string aux1, aux2, aux3, aux4, aux5;
     std::string aux_l1, aux_l2, aux_l3;
 
@@ -378,25 +298,47 @@ void HoveHandoverAlgorithm::GetPositions(int imsi, std::string path)
         std::string line;
         while (getline(mobilityFile, line)) { // get all lines
             std::stringstream at;
+
+            // match all lines that correspont to the current imsi
             at << "$node_(" << imsi - 1 << ") setdest";
-            if (line.find(at.str()) == std::string::npos) {}
+            if (line.find(at.str()) == std::string::npos) {} // ignore if no match
             else {
+
+                // break line into variables (coordinates and tmp)
                 std::istringstream ss(line);
                 ss >> aux1 >> aux2 >> aux3 >> aux4 >> aux5 >> x >> y >> z;
-                if (stoi(aux3) >= (int) Simulator::Now().GetSeconds() && stoi(aux3) - Simulator::Now().GetSeconds() < 20){
+
+                // ignore past values and get future ones
+                if (stod(aux3) >= (int) Simulator::Now().GetSeconds() 
+                        && stod(aux3) - (int) Simulator::Now().GetSeconds() == seconds_to_consider){ 
+                        // ignore values past seconds_to_consider seconds
                     int nc = 0;
                     while(infile >> aux_l1 >> aux_l2 >> aux_l3){
-                        m_dist[nc][stoi(aux3)] = sqrt(pow(stod(aux_l2) - x,2) + pow(stod(aux_l3) - y, 2));
+                        distances_future.push_back(sqrt(pow(stod(aux_l2) - x,2) + pow(stod(aux_l3) - y, 2)));
                         ++nc;
                     }
-                } // 
+                }
+
+                // get current values
+                NS_LOG_UNCOND("aux3" << aux3);
+                if (stod(aux3) >= (int) Simulator::Now().GetSeconds() 
+                        && stod(aux3) == (int) Simulator::Now().GetSeconds()){ 
+                        // ignore values past seconds_to_consider seconds
+                    int nc = 0;
+                    while(infile >> aux_l1 >> aux_l2 >> aux_l3){
+                        NS_LOG_UNCOND("auxl3" << aux3);
+                        distances.push_back(sqrt(pow(stod(aux_l2) - x,2) + pow(stod(aux_l3) - y, 2)));
+                        NS_LOG_INFO("Node " << imsi << " " << distances[nc] << " from cell " << nc << ".\n");
+                        ++nc;
+                    }
+                }
             }
         }
     }
     infile.close();
     mobilityFile.close();
 
-    return;
+    return distances;
 }
 
 void HoveHandoverAlgorithm::UpdateNeighbourMeasurements(uint16_t rnti,
