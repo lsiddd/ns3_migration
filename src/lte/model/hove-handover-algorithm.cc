@@ -359,22 +359,30 @@ bool HoveHandoverAlgorithm::IsValidNeighbour(uint16_t cellId)
 
 void HoveHandoverAlgorithm::GetPositions(int imsi, std::string path) 
 {
+    // path = the mobility file being used
+    // imsi = the user to be predicted = nodeid - 1
+
+    // coordinate variables
     double x, y, z;
+
+    // tmp veriables to read file
     std::string aux1, aux2, aux3, aux4, aux5;
     std::string aux_l1, aux_l2, aux_l3;
+
+    // file stream
     std::ifstream mobilityFile;
+    std::ifstream infile("v2x_temp/cellsList");
 
     mobilityFile.open(path, std::ios::in);
-    if (mobilityFile.is_open()) {
+    if (mobilityFile.is_open()) { // if file is open
         std::string line;
-        while (getline(mobilityFile, line)) {
+        while (getline(mobilityFile, line)) { // get all lines
             std::stringstream at;
             at << "$node_(" << imsi - 1 << ") setdest";
             if (line.find(at.str()) == std::string::npos) {}
             else {
                 std::istringstream ss(line);
                 ss >> aux1 >> aux2 >> aux3 >> aux4 >> aux5 >> x >> y >> z;
-                std::ifstream infile("v2x_temp/cellsList");
                 if (stoi(aux3) >= (int) Simulator::Now().GetSeconds() && stoi(aux3) - Simulator::Now().GetSeconds() < 20){
                     int nc = 0;
                     while(infile >> aux_l1 >> aux_l2 >> aux_l3){
@@ -382,10 +390,10 @@ void HoveHandoverAlgorithm::GetPositions(int imsi, std::string path)
                         ++nc;
                     }
                 } // 
-                infile.close();
             }
         }
     }
+    infile.close();
     mobilityFile.close();
 
     return;

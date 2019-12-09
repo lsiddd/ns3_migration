@@ -38,6 +38,8 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE("Ns3Migration");
+
 // function prototipes
 void onOffApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
@@ -49,9 +51,12 @@ void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 float PI = 3.14159265; // pi
 
 // scenario variables
-const uint16_t numNodes = 0;
-const uint16_t numEnbs = 5;
+const uint16_t numNodes = 50;
+const uint16_t numEnbs = 50;
 const uint16_t numEdgeNodes = numEnbs;
+
+// simulation variables
+Time simTime = Seconds(100);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
@@ -67,7 +72,7 @@ static int pingPort = 2000;
 static int applicationPort = 3000;
 
 // enable logs
-bool verbose = true;
+bool verbose = false;
 // perform migrations
 bool doMigrate = true;
 
@@ -128,7 +133,7 @@ void NotifyConnectionEstablishedUe(std::string context,
     uint16_t cellid,
     uint16_t rnti)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << "\n";
+    NS_LOG_INFO(Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << "\n");
 
     std::stringstream temp_cell_dir;
     std::stringstream ueId;
@@ -141,7 +146,6 @@ void NotifyConnectionEstablishedUe(std::string context,
     outfile.close();
 
     cell_ue[cellid - 1][imsi - 1] = rnti;
-
 }
 
 void NotifyHandoverStartUe(std::string context,
@@ -158,8 +162,8 @@ void NotifyHandoverStartUe(std::string context,
     ueId << "./v2x_temp/" << cellid << "/" << rnti;
     remove(ueId.str().c_str());
 
-    Simulator::Schedule(Simulator::Now(), &migrate, edgeNodes.Get(cellid - 1), 
-    edgeNodes.Get(targetCellId - 1), fogNodesAddresses[cellid - 1][1], fogNodesAddresses[targetCellId - 1][1]);
+    Simulator::Schedule(Simulator::Now(), &migrate, edgeNodes.Get(cellid - 1),
+        edgeNodes.Get(targetCellId - 1), fogNodesAddresses[cellid - 1][1], fogNodesAddresses[targetCellId - 1][1]);
 
     ++handNumber;
 }
@@ -209,7 +213,7 @@ void NotifyHandoverEndOkEnb(std::string context,
     std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
-void ArrayPositionAllocator(Ptr<ListPositionAllocator> HpnPosition)
+Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosition)
 {
 
     std::cout << "allocationg cells positions\n";
@@ -220,13 +224,13 @@ void ArrayPositionAllocator(Ptr<ListPositionAllocator> HpnPosition)
     if (randomCellAlloc) {
         std::cout << "random alloc\n";
         for (int i = 0; i < numEnbs; ++i) {
-            x = rand() % 100;
+            x = rand() % 2000;
             y = rand() % 2000;
             HpnPosition->Add(Vector(x, y, 15));
             outfile << i + 1 << " " << x << " " << y << std::endl;
         }
         outfile.close();
-        return;
+        return HpnPosition;
     }
     else if (rowTopology) {
         std::cout << "row alloc\n";
@@ -234,7 +238,7 @@ void ArrayPositionAllocator(Ptr<ListPositionAllocator> HpnPosition)
         int y_start = 500;
         for (int i = 0; i < numEnbs; ++i)
             HpnPosition->Add(Vector(x_start + distance * i, y_start, 25));
-        return;
+        return HpnPosition;
     }
     else {
         std::cout << "hex alloc\n";
@@ -253,6 +257,7 @@ void ArrayPositionAllocator(Ptr<ListPositionAllocator> HpnPosition)
             HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) + rand() % 100 + 10, 10));
             HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) - rand() % 100 + 10, 10));
         }
+        return HpnPosition;
     }
 }
 
@@ -266,12 +271,6 @@ void manager()
     // test application stop
     std::cout << "Applications on node 0: " << edgeNodes.Get(0)->GetNApplications() << "\n";
     std::cout << "Applications on node 1: " << edgeNodes.Get(1)->GetNApplications() << "\n";
-    if (Simulator::Now() > Seconds(5)) {
-        Ptr <Application> sourceApp = edgeNodes.Get(0)->GetApplication(0);
-        Ptr <Application> destApp = edgeNodes.Get(1)->GetApplication(0);
-        sourceApp->StopApplication();
-        destApp->StopApplication();
-    }
 }
 
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
@@ -301,8 +300,10 @@ void migrate(Ptr<Node> sourceServer,
 {
 
     // return if migration is not available
-    if (!doMigrate)
+    if (!doMigrate) {
+        std::cout << "Migration not enabled.\n";
         return;
+    }
 
     // make sure the transmission uses only udp (for now)
     NS_ASSERT_MSG(transmissionMode != "TCP", "TCP migration not implemented.");
@@ -311,9 +312,9 @@ void migrate(Ptr<Node> sourceServer,
     std::cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     if (transmissionMode == "UDP") {
         ++migrationPort;
-        UdpServerHelper server (migrationPort);
-        ApplicationContainer apps = server.Install (targetServer);
-        apps.Start (Simulator::Now());
+        UdpServerHelper server(migrationPort);
+        ApplicationContainer apps = server.Install(targetServer);
+        apps.Start(Simulator::Now());
         // apps.Stop (Simulator::Now()+Seconds(5));
 
         //
@@ -324,13 +325,13 @@ void migrate(Ptr<Node> sourceServer,
         uint32_t MaxPacketSize = 1024;
         uint32_t maxPacketCount = migrationSize / MaxPacketSize;
         // tyr to migrate this in 10 senconds at most
-        Time interPacketInterval = MilliSeconds (100);
-        UdpClientHelper client (targetServerAddress, migrationPort);
-        client.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
-        client.SetAttribute ("Interval", TimeValue (interPacketInterval));
-        client.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
-        apps = client.Install (sourceServer);
-        apps.Start (Simulator::Now());
+        Time interPacketInterval = MilliSeconds(100);
+        UdpClientHelper client(targetServerAddress, migrationPort);
+        client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+        client.SetAttribute("Interval", TimeValue(interPacketInterval));
+        client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
+        apps = client.Install(sourceServer);
+        apps.Start(Simulator::Now());
     }
     else if (transmissionMode == "TCP") {
         uint16_t servPort = migrationPort;
@@ -352,15 +353,6 @@ void migrate(Ptr<Node> sourceServer,
         Simulator::ScheduleNow(&StartFlow, localSocket,
             sourceServerAddress, servPort);
     }
-}
-
-void stopFlow(int i)
-{
-    // zero the bytes to be transmitted by the i'th node
-    if (totalTxBytes[0] > 0)
-        totalTxBytes[0] = 0;
-    else
-        totalTxBytes[0] = 999999999;
 }
 
 void onOffApplication(Ptr<Node> ueNode,
@@ -424,25 +416,27 @@ void WriteUntilBufferFull(Ptr<Socket> localSocket, uint32_t txSpace)
     localSocket->Close();
 }
 
-int getCellId(int imsi) {
+int getCellId(int imsi)
+{
     // start this variable at an arbitrary value
     int cell = 6666;
     for (int i = 0; i < numNodes; ++i) {
-            for (int j = 0; j < numEdgeNodes; ++j){
-                if (cell_ue[j][i] != 0){
-                    std::cout << "user " << i << " connected to cell " << j << "\n";
-                    cell = j;
-                }
+        for (int j = 0; j < numEdgeNodes; ++j) {
+            if (cell_ue[j][i] != 0) {
+                std::cout << "user " << i << " connected to cell " << j << "\n";
+                cell = j;
             }
+        }
     }
+    // if the value hasn't changed, raise an error
     NS_ASSERT_MSG(cell != 6666, "serving cell not found.");
-    // do { (void)sizeof (cell != 6666); } while (false);
     return cell;
-
 }
 
 int main(int argc, char* argv[])
 {
+
+    srand(time(NULL));
     // logs enabled
     if (verbose) {
         LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
@@ -465,9 +459,6 @@ int main(int argc, char* argv[])
     std::fill(resources, resources + numEdgeNodes, 2);
     // set the max bytes tranferred by each request
     std::fill(totalTxBytes, totalTxBytes + numEdgeNodes, 9999999990);
-
-    // simulation variables
-    Time simTime = Seconds(20);
 
     // Command line arguments
     CommandLine cmd;
@@ -514,9 +505,9 @@ int main(int argc, char* argv[])
 
     // Handover configuration
     lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
-    lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(3.0));
-    lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
-        TimeValue(MilliSeconds(256)));
+    // lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(3.0));
+    // lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
+    //     TimeValue(MilliSeconds(256)));
 
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
@@ -527,7 +518,7 @@ int main(int argc, char* argv[])
     // NodeContainer ueNodes;
     // NodeContainer enbNodes;
     // NodeContainer edgeNodes;
-    
+
     enbNodes.Create(numEnbs);
     ueNodes.Create(numNodes);
     edgeNodes.Create(numEdgeNodes);
@@ -552,12 +543,12 @@ int main(int argc, char* argv[])
         // add network routes to fog nodes
         Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(i)->GetObject<Ipv4>());
         remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
-        p2ph.EnablePcapAll("lena-simple-epc-backhaul");
+        // p2ph.EnablePcapAll("lena-simple-epc-backhaul");
     }
 
     /*-----------------POSIÇÃO DAS TORRES----------------------------------*/
     Ptr<ListPositionAllocator> HpnPosition = CreateObject<ListPositionAllocator>();
-    ArrayPositionAllocator(HpnPosition);
+    HpnPosition = positionAllocator(HpnPosition);
 
     MobilityHelper remoteHostMobility;
     remoteHostMobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
@@ -570,7 +561,7 @@ int main(int argc, char* argv[])
     mobilityEnb.Install(enbNodes);
 
     // Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/SanFrancisco.tcl");
-    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/carroTrace.tcl");
+    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("/home/lucas/Downloads/bonnmotion-3.0.1/bin/scenario1.ns_movements");
     MobilityHelper ueMobility;
     MobilityHelper enbMobility;
 
@@ -588,9 +579,9 @@ int main(int argc, char* argv[])
     edgeIpv4AddressHelper.SetBase("22.0.0.0", "255.255.255.0");
 
     CsmaHelper csma;
-    csma.SetChannelAttribute ("DataRate", StringValue ("100Gbps"));
-    csma.SetChannelAttribute ("Delay", StringValue ("0ms"));
-    NetDeviceContainer d2345 = csma.Install (edgeNodes);
+    csma.SetChannelAttribute("DataRate", StringValue("100Gbps"));
+    csma.SetChannelAttribute("Delay", StringValue("0ms"));
+    NetDeviceContainer d2345 = csma.Install(edgeNodes);
     Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(d2345);
     for (uint32_t i = 0; i < edgeIpIfaces.GetN(); ++i) {
         fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(i);
@@ -637,20 +628,20 @@ int main(int argc, char* argv[])
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    // for (int i = 0; i < 2; ++i)
-    //     for (int j = 0; j < 2; ++j){
-    //         if (i == j)
-    //             continue;
-    //         std::cout << "starting migration from " << i << " to " << j << ".\n";
-    //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i), 
-    //                 edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
-    //     }
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 2; ++j){
+            if (i == j)
+                continue;
+            std::cout << "starting migration from " << i << " to " << j << ".\n";
+            Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i),
+                    edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
+        }
 
-    Simulator::Schedule(Seconds(2), & migrate, edgeNodes.Get(1), 
-                    edgeNodes.Get(0), fogNodesAddresses[1][1], fogNodesAddresses[0][1]);
+    // Simulator::Schedule(Seconds(2), &migrate, edgeNodes.Get(1),
+    //     edgeNodes.Get(0), fogNodesAddresses[1][1], fogNodesAddresses[0][1]);
 
-    Simulator::Schedule(Seconds(2), & migrate, edgeNodes.Get(0), 
-                    edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
+    // Simulator::Schedule(Seconds(2), &migrate, edgeNodes.Get(0),
+    //     edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
@@ -662,7 +653,6 @@ int main(int argc, char* argv[])
         MakeCallback(&NotifyHandoverStartUe));
     Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverEndOk",
         MakeCallback(&NotifyHandoverEndOkUe));
-
 
     // intall flow monitor and get stats
     FlowMonitorHelper flowmon;
