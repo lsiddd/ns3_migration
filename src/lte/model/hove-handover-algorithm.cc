@@ -215,7 +215,8 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
         }
 
         // todo: receive this string as an attribute
-        std::vector<int> diatances =  GetPositions(imsi, "mobil/bonnmotion_random_waypoint.tcl");
+        std::vector<int> distances =  GetPositions(imsi, "mobil/bonnmotion.tcl");
+        std::vector<int> distances_future =  GetPositions(imsi, "mobil/bonnmotion.tcl", "future");
 
         NS_LOG_INFO("\n\n\n------------------------------------------------------------------------");
         NS_LOG_INFO("Measured at: " << Simulator::Now().GetSeconds() << " Seconds.\nIMSI:" << imsi << "\nRNTI: " << rnti << "\n");
@@ -272,22 +273,21 @@ bool HoveHandoverAlgorithm::IsValidNeighbour(uint16_t cellId)
     return true;
 }
 
-std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path) 
+std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path, std::string time) 
 {
     // path = the mobility file being used
     // imsi = the user to be predicted = nodeid - 1
 
     // coordinate variables
-    double x, y, z;
+    double x, y, z, aux3, aux_l3, aux_l2;
     int seconds_to_consider = 5;
     std::vector <int> distances;
     std::vector <int> distances_future;
-    std::string::size_type sz;     // alias of size_t
 
     // tmp veriables to read file
     // aux3 = time of the position
-    std::string aux1, aux2, aux3, aux4, aux5;
-    std::string aux_l1, aux_l2, aux_l3;
+    std::string aux1, aux2, aux4, aux5;
+    std::string aux_l1;
 
     // file stream
     std::ifstream mobilityFile;
@@ -308,33 +308,35 @@ std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path)
                 std::istringstream ss(line);
                 ss >> aux1 >> aux2 >> aux3 >> aux4 >> aux5 >> x >> y >> z;
 
-                // ignore past values and get future ones
-                if (stod(aux3) >= (int) Simulator::Now().GetSeconds() 
-                        && stod(aux3) - (int) Simulator::Now().GetSeconds() == seconds_to_consider){ 
-                        // ignore values past seconds_to_consider seconds
-                    int nc = 0;
-                    while(infile >> aux_l1 >> aux_l2 >> aux_l3){
-                        distances_future.push_back(sqrt(pow(stod(aux_l2) - x,2) + pow(stod(aux_l3) - y, 2)));
-                        ++nc;
+                if (time == "present"){
+                    // ignore past values and get future ones
+                    if (aux3 >= (int) Simulator::Now().GetSeconds() 
+                            && aux3 - (int) Simulator::Now().GetSeconds() == seconds_to_consider){ 
+                            // ignore values past seconds_to_consider seconds
+                        int nc = 0;
+                        while(infile >> aux_l1 >> aux_l2 >> aux_l3){
+                            distances_future.push_back(sqrt(pow(aux_l2 - x,2) + pow(aux_l3 - y, 2)));
+                            ++nc;
+                        }
                     }
-                }
+                } // if time present
 
-                // get current values
-                NS_LOG_UNCOND("aux3" << aux3);
-                if (stod(aux3) >= (int) Simulator::Now().GetSeconds() 
-                        && stod(aux3) == (int) Simulator::Now().GetSeconds()){ 
-                        // ignore values past seconds_to_consider seconds
-                    int nc = 0;
-                    while(infile >> aux_l1 >> aux_l2 >> aux_l3){
-                        NS_LOG_UNCOND("auxl3" << aux3);
-                        distances.push_back(sqrt(pow(stod(aux_l2) - x,2) + pow(stod(aux_l3) - y, 2)));
-                        NS_LOG_INFO("Node " << imsi << " " << distances[nc] << " from cell " << nc << ".\n");
-                        ++nc;
+                else if (time == "future") {
+                    // get current values
+                    if (aux3 >= (int) Simulator::Now().GetSeconds() 
+                            && aux3 == (int) Simulator::Now().GetSeconds()){ 
+                            // ignore values past seconds_to_consider seconds
+                        int nc = 0;
+                        while(infile >> aux_l1 >> aux_l2 >> aux_l3){
+                            distances.push_back(sqrt(pow(aux_l2 - x,2) + pow(aux_l3 - y, 2)));
+                            NS_LOG_INFO("Node " << imsi << " " << distances[nc] << " from cell " << nc << ".\n");
+                            ++nc;
+                        }
                     }
-                }
-            }
-        }
-    }
+                } // if time future
+            } // if line matches user
+        } // get lines from mobility file
+    } // if file is open
     infile.close();
     mobilityFile.close();
 
