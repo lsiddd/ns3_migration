@@ -199,37 +199,50 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
         cell[cell_iterator][0] = (uint16_t)servingCellRsrq;
         cell[cell_iterator][3] = servingCellId;
 
-        for (int k = 0; k < n_c; ++k) {
-            soma[k] =  cell[k][0] * 0.14;
+        //for (int k = 0; k < n_c; ++k) {
+            //soma[k] =  cell[k][0] * 0.14;
 
-            NS_LOG_DEBUG("cell [" << k << "][0]: " << cell[k][0]);
-            NS_LOG_DEBUG("sum for cell " << k << " :" << soma[k]);
-        }
+            //NS_LOG_DEBUG("cell [" << k << "][0]: " << cell[k][0]);
+            //NS_LOG_DEBUG("sum for cell " << k << " :" << soma[k]);
+        //}
 
-        for (int k = 0; k < n_c; ++k) {
-            if (soma[k] > soma_res && cell[k][0] != 0 ) { // && cell[k][0] > servingCellRsrq) {
-                bestNeighbourCellRsrq = cell[k][0];
-                bestNeighbourCellId = cell[k][3];
-                soma_res = soma[k];
-            }
-        }
+        //for (int k = 0; k < n_c; ++k) {
+            //if (soma[k] > soma_res && cell[k][0] != 0 ) { // && cell[k][0] > servingCellRsrq) {
+                //bestNeighbourCellRsrq = cell[k][0];
+                //bestNeighbourCellId = cell[k][3];
+                //soma_res = soma[k];
+            //}
+        //}
 
         // todo: receive this string as an attribute
-        std::vector<int> distances =  GetPositions(imsi, "mobil/bonnmotion.tcl");
-        std::vector<int> distances_future =  GetPositions(imsi, "mobil/bonnmotion.tcl", "future");
+        std::vector<int> distances =  GetPositions(imsi, "mobil/bonnmotion.tcl", "present", servingCellId);
 
-        NS_LOG_INFO("\n\n\n------------------------------------------------------------------------");
-        NS_LOG_INFO("Measured at: " << Simulator::Now().GetSeconds() << " Seconds.\nIMSI:" << imsi << "\nRNTI: " << rnti << "\n");
+        // todo: debug why this vector is empty
+        std::vector<int> distances_future =  GetPositions(imsi, "mobil/bonnmotion.tcl", "future", servingCellId);
+
+        // tmp variable to store the lowest distance in the iteration
+        double distance_tmp = distances[0];
+        // id of the closest cell
+        // int closestCellId;
         for (int i = 0; i < n_c; ++i) {
-            if (cell[i][3] == servingCellId)
-                NS_LOG_INFO("Cell " << cell[i][3] << " -- AHP Score:" << soma[i] << " (serving)");
-            else
-                NS_LOG_INFO("Cell " << cell[i][3] << " -- AHP Score:" << soma[i]);
-            NS_LOG_INFO("         -- RSRQ: " << cell[i][0]);
-            NS_LOG_INFO("         -- MOSp: " << cell[i][1]);
-            NS_LOG_INFO("         -- PDR: " << cell[i][2] << "\n");
+            NS_LOG_UNCOND("cell id " << cell[i][3]);
+            NS_LOG_UNCOND("distance " << distances[cell[i][3] - 1]);
+            if (distances[cell[i][3] - 1] < distance_tmp)
+                bestNeighbourCellId = cell[i][3];
         }
-        NS_LOG_INFO("\n\nBest Neighbor Cell ID: " << bestNeighbourCellId);
+
+        // NS_LOG_INFO("\n\n\n------------------------------------------------------------------------");
+        // NS_LOG_INFO("Measured at: " << Simulator::Now().GetSeconds() << " Seconds.\nIMSI:" << imsi << "\nRNTI: " << rnti << "\n");
+        // for (int i = 0; i < n_c; ++i) {
+        //     if (cell[i][3] == servingCellId)
+        //         NS_LOG_INFO("Cell " << cell[i][3] << " -- AHP Score:" << soma[i] << " (serving)");
+        //     else
+        //         NS_LOG_INFO("Cell " << cell[i][3] << " -- AHP Score:" << soma[i]);
+        //     NS_LOG_INFO("         -- RSRQ: " << cell[i][0]);
+        //     NS_LOG_INFO("         -- MOSp: " << cell[i][1]);
+        //     NS_LOG_INFO("         -- PDR: " << cell[i][2] << "\n");
+        // }
+         NS_LOG_INFO("\n\nBest Neighbor Cell ID: " << bestNeighbourCellId);
 
         if (bestNeighbourCellId != servingCellId && bestNeighbourCellRsrq > servingCellRsrq) {
 
@@ -273,25 +286,28 @@ bool HoveHandoverAlgorithm::IsValidNeighbour(uint16_t cellId)
     return true;
 }
 
-std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path, std::string time) 
+std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path, std::string time, int servingCellId) 
 {
     // path = the mobility file being used
     // imsi = the user to be predicted = nodeid - 1
 
     // coordinate variables
-    double x, y, z, aux3, aux_l3, aux_l2;
+    double node_x, node_y, node_z, node_position_time, cell_y_coord, cell_x_coord;
     int seconds_to_consider = 5;
     std::vector <int> distances;
     std::vector <int> distances_future;
 
+    // temp value to store the value of the distance between the node and a cell
+    double dist_value_tmp = 0;
+
     // tmp veriables to read file
-    // aux3 = time of the position
+    // node_position_time = time of the position
     std::string aux1, aux2, aux4, aux5;
-    std::string aux_l1;
+    std::string cell_id;
 
     // file stream
     std::ifstream mobilityFile;
-    std::ifstream infile("v2x_temp/cellsList");
+    std::ifstream cellFile("v2x_temp/cellsList");
 
     mobilityFile.open(path, std::ios::in);
     if (mobilityFile.is_open()) { // if file is open
@@ -306,16 +322,17 @@ std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path,
 
                 // break line into variables (coordinates and tmp)
                 std::istringstream ss(line);
-                ss >> aux1 >> aux2 >> aux3 >> aux4 >> aux5 >> x >> y >> z;
+                ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;
 
                 if (time == "present"){
                     // ignore past values and get future ones
-                    if (aux3 >= (int) Simulator::Now().GetSeconds() 
-                            && aux3 - (int) Simulator::Now().GetSeconds() == seconds_to_consider){ 
+                    if ((int) node_position_time >= (int) Simulator::Now().GetSeconds() 
+                            && (int) node_position_time - (int) Simulator::Now().GetSeconds() == seconds_to_consider){ 
                             // ignore values past seconds_to_consider seconds
                         int nc = 0;
-                        while(infile >> aux_l1 >> aux_l2 >> aux_l3){
-                            distances_future.push_back(sqrt(pow(aux_l2 - x,2) + pow(aux_l3 - y, 2)));
+                        while(cellFile >> cell_id >> cell_x_coord >> cell_y_coord){
+                            dist_value_tmp = sqrt(pow(cell_x_coord - node_x,2) + pow(cell_y_coord - node_y, 2));
+                            distances.push_back(dist_value_tmp);
                             ++nc;
                         }
                     }
@@ -323,13 +340,13 @@ std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path,
 
                 else if (time == "future") {
                     // get current values
-                    if (aux3 >= (int) Simulator::Now().GetSeconds() 
-                            && aux3 == (int) Simulator::Now().GetSeconds()){ 
+                    if ((int) node_position_time >= (int) Simulator::Now().GetSeconds() 
+                            && (int) node_position_time == (int) Simulator::Now().GetSeconds()){ 
                             // ignore values past seconds_to_consider seconds
                         int nc = 0;
-                        while(infile >> aux_l1 >> aux_l2 >> aux_l3){
-                            distances.push_back(sqrt(pow(aux_l2 - x,2) + pow(aux_l3 - y, 2)));
-                            NS_LOG_INFO("Node " << imsi << " " << distances[nc] << " from cell " << nc << ".\n");
+                        while(cellFile >> cell_id >> cell_x_coord >> cell_y_coord){
+                            distances_future.push_back(sqrt(pow(cell_x_coord - node_x,2) + pow(cell_y_coord - node_y, 2)));
+                            NS_LOG_INFO("Node " << imsi << " " << distances_future[nc] << " from cell " << nc << ".\n");
                             ++nc;
                         }
                     }
@@ -337,7 +354,7 @@ std::vector<int> HoveHandoverAlgorithm::GetPositions(int imsi, std::string path,
             } // if line matches user
         } // get lines from mobility file
     } // if file is open
-    infile.close();
+    cellFile.close();
     mobilityFile.close();
 
     return distances;
