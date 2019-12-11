@@ -92,6 +92,11 @@ HoveHandoverAlgorithm::GetTypeId()
                                 DoubleValue(0.2),
                                 MakeDoubleAccessor(&HoveHandoverAlgorithm::m_threshold),
                                 MakeDoubleChecker<double>())
+                            .AddAttribute("mobilityTrace",
+                                "lorem ipsum",
+                                StringValue("mobil/carroTrace.tcl"),
+                                MakeStringAccessor(&HoveHandoverAlgorithm::mobilityTrace),
+                                MakeStringChecker())
                             .AddAttribute("TimeToTrigger",
                                 "Time during which neighbour cell's RSRP "
                                 "must continuously higher than serving cell's RSRP "
@@ -184,8 +189,6 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
 
         int n_c = it1->second.size() + 1;
         double cell[it1->second.size() + 1][4];
-        double soma[n_c];
-        double soma_res = 0;
 
         while (rntiFile >> imsi) {}
 
@@ -214,11 +217,10 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
             //}
         //}
 
-        // todo: receive this string as an attribute
-        std::vector<int> distances =  GetPositions(imsi, "mobil/bonnmotion.tcl", "present", servingCellId);
+        std::vector<int> distances =  GetPositions(imsi, mobilityTrace, "present", servingCellId);
 
         // todo: debug why this vector is empty
-        std::vector<int> distances_future =  GetPositions(imsi, "mobil/bonnmotion.tcl", "future", servingCellId);
+        std::vector<int> distances_future =  GetPositions(imsi, mobilityTrace, "future", servingCellId);
 
         // tmp variable to store the lowest distance in the iteration
         double distance_tmp = distances[0];

@@ -55,6 +55,9 @@ const uint16_t numNodes = 70;
 const uint16_t numEnbs = 50;
 const uint16_t numEdgeNodes = numEnbs;
 
+// mobility trace file
+std::string mobilityTrace = "mobil/carroTrace.tcl";
+
 // simulation variables
 Time simTime = Seconds(100);
 
@@ -502,7 +505,7 @@ int main(int argc, char* argv[])
 
     // Handover configuration
     lteHelper->SetHandoverAlgorithmType("ns3::HoveHandoverAlgorithm");
-    // lteHelper->SetHandoverAlgorithmAttribute("Hysteresis", DoubleValue(1.0));
+    lteHelper->SetHandoverAlgorithmAttribute("mobilityTrace", StringValue(mobilityTrace));
     // lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
     //     TimeValue(MilliSeconds(256)));
 
@@ -558,7 +561,7 @@ int main(int argc, char* argv[])
     mobilityEnb.Install(enbNodes);
 
     // Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/SanFrancisco.tcl");
-    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/bonnmotion.tcl");
+    Ns2MobilityHelper ue_mobil = Ns2MobilityHelper(mobilityTrace);
     MobilityHelper ueMobility;
     MobilityHelper enbMobility;
 
