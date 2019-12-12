@@ -1,4 +1,3 @@
 Waf: Entering directory `/home/lucas/git/ns3_migration/build'
+[1813/1867] Compiling scratch/migration.cc
 Waf: Leaving directory `/home/lucas/git/ns3_migration/build'
-Build commands will be stored in build/compile_commands.json
-'build' finished successfully (1.785s)

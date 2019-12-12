@@ -167,8 +167,6 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
         // id of the closest cell
         // int closestCellId;
         for (int i = 0; i < n_c; ++i) {
-            NS_LOG_UNCOND("cell id " << cell[i][3]);
-            NS_LOG_UNCOND("distance " << distances[cell[i][3] - 1]);
             if (distances[cell[i][3] - 1] < distance_tmp)
                 bestNeighbourCellId = cell[i][3];
         }
@@ -256,8 +254,6 @@ std::vector < int > HoveHandoverAlgorithm::GetPositions(int imsi, std::string pa
                 if (time == "present") {
                     // ignore past values and get future ones
                     if ( round (node_position_time) >=  round(Simulator::Now().GetSeconds())) {
-                        std::cout << "HOVE::DEBUG current time: " << Simulator::Now().GetSeconds() << "\n";
-                        std::cout << "HOVE::DEBUG " << node_position_time << "\n";
                         // ignore values past seconds_to_consider seconds
                         int nc = 0;
                         while (cellFile >> cell_id >> cell_x_coord >> cell_y_coord) {
@@ -269,8 +265,6 @@ std::vector < int > HoveHandoverAlgorithm::GetPositions(int imsi, std::string pa
                 } // if time present
                 else if (time == "future") {
                     // get current values
-                    std::cout << "HOVE::DEBUG current time: " << Simulator::Now().GetSeconds() << "\n";
-                    std::cout << "HOVE::DEBUG" << node_position_time << "\n";
                     if ( round(node_position_time) >=  round(Simulator::Now().GetSeconds()) &&
                          round(node_position_time) ==  round(Simulator::Now().GetSeconds())) {
                         // ignore values past seconds_to_consider seconds
