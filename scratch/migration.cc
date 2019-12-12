@@ -51,7 +51,7 @@ void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 float PI = 3.14159265; // pi
 
 // scenario variables
-const uint16_t numNodes = 70;
+const uint16_t numNodes = 50;
 const uint16_t numEnbs = 50;
 const uint16_t numEdgeNodes = numEnbs;
 
