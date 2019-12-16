@@ -158,7 +158,11 @@ void HoveHandoverAlgorithm::EvaluateHandover(uint16_t rnti,
         std::vector < int > distances = GetPositions(imsi, mobilityTrace, "present", servingCellId);
 
         // todo: debug why this vector is empty
-        // std::vector < int > distances_future = GetPositions(imsi, mobilityTrace, "future", servingCellId);
+        std::vector < int > distances_future = GetPositions(imsi, mobilityTrace, "future", servingCellId);
+
+        NS_LOG_UNCOND(Simulator::Now().GetSeconds());
+        NS_LOG_UNCOND("Size of vector distances: " << distances.size());
+        NS_LOG_UNCOND("Size of vector distances_future: " << distances_future.size());
 
         // tmp variable to store the lowest distance in the iteration
 
@@ -246,7 +250,7 @@ std::vector < int > HoveHandoverAlgorithm::GetPositions(int imsi, std::string pa
 
             // match all lines that correspont to the current imsi
             at << "$node_(" << imsi - 1 << ") setdest";
-            if (!( line.find(at.str()) == std::string::npos ) ) {
+            if (line.find(at.str()) != std::string::npos) {
                 // break line into variables (coordinates and tmp)
                 std::istringstream ss(line);
                 ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;

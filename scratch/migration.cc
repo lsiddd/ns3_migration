@@ -34,8 +34,10 @@
 // #include "ns3/gtk-config-store.h"
 #include <sys/stat.h> // file permissions
 // Used for cell allocation
-#include <math.h> // sin cos
+#include <math.h> // sin cos pow
+#include <limits> // limit of the int type
 
+using namespace std;
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
@@ -46,34 +48,45 @@ void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 void WriteUntilBufferFull(Ptr<Socket>, uint32_t);
 void StartFlow(Ptr<Socket>, Ipv4Address, uint16_t);
 void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
+int getCellId(int imsi);
 
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 20;
-const uint16_t numEnbs = 20;
+const uint16_t numNodes = 50;
+const uint16_t numEnbs = 50;
 const uint16_t numEdgeNodes = numEnbs;
+
 // mobility trace file
-std::string mobilityTrace = "mobil/carroTrace.tcl";
+string mobilityTrace = "mobil/bonnmotion.tcl";
+
 // simulation variables
-Time simTime = Seconds(100);
+Time simTime = Seconds(500);
+
 // inicialize node containers as global objects
 NodeContainer ueNodes;
 NodeContainer edgeNodes;
 NodeContainer enbNodes;
+
 // ApplicationContariners
 ApplicationContainer apps;
+
 // port ranges for each application
 static int migrationPort = 1000;
 static int pingPort = 2000;
 static int applicationPort = 3000;
+
 // enable logs
 bool verbose = false;
+
 // perform migrations
 bool doMigrate = true;
+
 // use TCP or UDP in the flows
-std::string transmissionMode = "UDP";
+string transmissionMode = "UDP";
+
 unsigned int handNumber = 0; // number of handovers executed
+
 // The resources variable tells which server has one or
 // more of the recources needed in this simulation
 // the resources are:
@@ -82,24 +95,29 @@ uint16_t resources[numEdgeNodes];
 int initialResources = 10;
 // units of processing used at the moment
 uint16_t serverLoad[numEdgeNodes];
+
 Time managerInterval = MilliSeconds(100);
 // size of the sevices to be migrated in bytes
 uint64_t migrationSize = 2000000000;
-// data rate of the migration
-// uint64_t migrationDataRate = ;
+
+// type of cell position allocation
 bool rowTopology = false;
 bool randomCellAlloc = true;
+
 // data rate
 Time interPacketInterval = MilliSeconds(1);
+
 // control matrix
 int cell_ue[numEnbs][numNodes];
+
 // edge servers responsible for each node
 int edge_ue[numEdgeNodes][numNodes];
+
 // IP addres of all fog nodes
 // the ith server has two addresses, the 7.0.0.X base to communicate with nodes
-// and the 22.0.0.X
-//  base for migrations
+// and the 22.0.0.X base for migrations
 Ipv4Address fogNodesAddresses[numEdgeNodes][2];
+
 // TCP parameters
 static uint64_t totalTxBytes[numNodes]; // limit for each node
 static uint32_t currentTxBytes = 0;
@@ -112,37 +130,103 @@ uint8_t data[writeSize];
 // implement a sending "Application", although not a proper ns3::Application
 // subclass.
 
-void NotifyConnectionEstablishedUe(std::string context,
+void HandoverPrediction (int nodeId, int timeWindow){
+
+    // means no connection has been found
+    // happens if it's called too early in the simulation
+    if (getCellId(0) == -1)
+        return;
+
+    // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
+    ifstream mobilityFile (mobilityTrace);
+    ifstream cellsFile ("v2x_temp/cellsList");
+
+    string nodeColumn;
+    string fileLines;
+
+    // coordinate variables
+    double node_x, node_y, node_z, node_position_time;
+    double shortestDistance = numeric_limits<int>::max();
+    int closestCell = numeric_limits<int>::max();
+
+    // tmp veriables to read file
+    // node_position_time = time of the position
+    string aux1, aux2, aux4, aux5;
+    string cell_id;
+
+    while(getline(mobilityFile, fileLines)) {
+        if (fileLines.find("setdest") != string::npos) {
+
+            stringstream ss(fileLines);
+            // cout << ss.str();
+            ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;
+
+            nodeColumn = "\"$node_(" + to_string(nodeId) + ")";
+            // cout << "nodeColumn" << nodeColumn << "\n";
+            // cout << "aux: " << aux4 << "\n";
+            // cin.get();
+
+            for (int time_offset = 0; time_offset < timeWindow; time_offset++)
+                if (aux4 == nodeColumn && Simulator::Now().GetSeconds() == round(node_position_time)) {
+                    cout << ss.str();
+                    cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
+                    Vector uePos = Vector(node_x, node_y, node_z);
+
+                    // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
+
+
+                    for (int i = 0; i < numEnbs; ++i){
+                        Vector enbPos = enbNodes.Get(i)->GetObject<MobilityModel> ()->GetPosition ();
+                        double distanceUeEnb = CalculateDistance(uePos, enbPos);
+
+                        // cout << "node " <<  nodeId << " " << distanceUeEnb << " from cell " << i << "\n";
+                        if ( distanceUeEnb < shortestDistance) {
+                            closestCell = i;
+                            shortestDistance = distanceUeEnb;
+                        }
+                        if (closestCell != getCellId(nodeId))
+                            cout << "Handover to happen at " << node_position_time << endl;
+                    }
+                    // cin.get();
+                }
+        }
+    }
+
+    cellsFile.close();
+    mobilityFile.close();
+}
+
+void NotifyConnectionEstablishedUe(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti)
 {
     NS_LOG_INFO(Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << "\n");
 
-    std::stringstream temp_cell_dir;
-    std::stringstream ueId;
+    stringstream temp_cell_dir;
+    stringstream ueId;
     temp_cell_dir << "./v2x_temp/" << cellid;
     ueId << temp_cell_dir.str() << "/" << rnti;
     if (mkdir(temp_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
     }
-    std::ofstream outfile(ueId.str().c_str());
-    outfile << imsi << std::endl;
+    ofstream outfile(ueId.str().c_str());
+    outfile << imsi << endl;
     outfile.close();
 
     cell_ue[cellid - 1][imsi - 1] = rnti;
 }
 
-void NotifyHandoverStartUe(std::string context,
+void NotifyHandoverStartUe(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti,
     uint16_t targetCellId)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI " << rnti << ", doing handover to CellId " << targetCellId << "\n";
+    cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI " << rnti << ", doing handover to CellId " << targetCellId << "\n";
 
     cell_ue[cellid - 1][imsi - 1] = 0;
 
-    std::stringstream ueId;
+    stringstream ueId;
     ueId << "./v2x_temp/" << cellid << "/" << rnti;
     remove(ueId.str().c_str());
 
@@ -152,72 +236,72 @@ void NotifyHandoverStartUe(std::string context,
     ++handNumber;
 }
 
-void NotifyHandoverEndOkUe(std::string context,
+void NotifyHandoverEndOkUe(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << "\n";
+    cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << "\n";
 
-    std::stringstream target_cell_dir;
-    std::stringstream newUeId;
+    stringstream target_cell_dir;
+    stringstream newUeId;
     target_cell_dir << "./v2x_temp/" << cellid;
     newUeId << target_cell_dir.str() << "/" << rnti;
     if (mkdir(target_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
     }
-    std::ofstream outfile(newUeId.str().c_str());
-    outfile << imsi << std::endl;
+    ofstream outfile(newUeId.str().c_str());
+    outfile << imsi << endl;
     outfile.close();
 
     cell_ue[cellid - 1][imsi - 1] = rnti;
 }
 
-void NotifyConnectionEstablishedEnb(std::string context,
+void NotifyConnectionEstablishedEnb(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": successful connection of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
+    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": successful connection of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
-void NotifyHandoverStartEnb(std::string context,
+void NotifyHandoverStartEnb(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti,
     uint16_t targetCellId)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << "\n";
+    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << "\n";
 }
 
-void NotifyHandoverEndOkEnb(std::string context,
+void NotifyHandoverEndOkEnb(string context,
     uint64_t imsi,
     uint16_t cellid,
     uint16_t rnti)
 {
-    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
+    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
 Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosition)
 {
 
-    std::cout << "allocationg cells positions\n";
+    cout << "allocationg cells positions\n";
     int x, y;
     int distance = 1000;
-    std::ofstream outfile("v2x_temp/cellsList", std::ios::out | std::ios::trunc);
+    ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
 
     if (randomCellAlloc) {
-        std::cout << "random alloc\n";
+        cout << "random alloc\n";
         for (int i = 0; i < numEnbs; ++i) {
             x = rand() % 2000;
             y = rand() % 2000;
             HpnPosition->Add(Vector(x, y, 15));
-            outfile << i + 1 << " " << x << " " << y << std::endl;
+            outfile << i + 1 << " " << x << " " << y << endl;
         }
         outfile.close();
         return HpnPosition;
     }
     else if (rowTopology) {
-        std::cout << "row alloc\n";
+        cout << "row alloc\n";
         int x_start = 700;
         int y_start = 500;
         for (int i = 0; i < numEnbs; ++i)
@@ -225,7 +309,7 @@ Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosi
         return HpnPosition;
     }
     else {
-        std::cout << "hex alloc\n";
+        cout << "hex alloc\n";
         int x_start = 1000;
         int y_start = 1000;
 
@@ -249,12 +333,14 @@ void manager()
 {
     // todo: read migration log generated by handover manager
 
-    std::cout << "manager started at " << Simulator::Now() << " \n";
+    cout << "manager started at " << Simulator::Now() << " \n";
 
     for (int i = 0; i < numEdgeNodes; ++i) {
-        std::cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
+        cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
     }
-    std::cout << "..................................\n\n\n";
+    cout << "..................................\n\n\n";
+
+    HandoverPrediction(0, 1);
 
     Simulator::Schedule(managerInterval, &manager);
 }
@@ -262,7 +348,7 @@ void manager()
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
 {
     UdpEchoServerHelper echoServer(pingPort);
-    std::cout << "pinging on port " << pingPort << "\n";
+    cout << "pinging on port " << pingPort << "\n";
     pingPort++;
 
     ApplicationContainer serverApps = echoServer.Install(edgeProbeNode);
@@ -279,7 +365,7 @@ void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAd
     clientApps.Stop(Simulator::Now() + Seconds(1));
 }
 
-int getNodeId(Ptr <Node> node, std::string type = "edge") {
+int getNodeId(Ptr <Node> node, string type = "edge") {
 
     // seleced the desired node container
     NodeContainer tmpNodesContainer;
@@ -291,11 +377,13 @@ int getNodeId(Ptr <Node> node, std::string type = "edge") {
         tmpNodesContainer = enbNodes;
 
     // find th enode id
-    for (int i = 0; i < tmpNodesContainer.GetN(); ++i){
+    for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i){
         if(node == tmpNodesContainer.Get(i))
             return i;
     }
 
+    // return -1 if no cell has been found
+    return -1;
 }
 
 void migrate(Ptr<Node> sourceServer,
@@ -306,7 +394,7 @@ void migrate(Ptr<Node> sourceServer,
 
     // return if migration is not available
     if (!doMigrate) {
-        std::cout << "Migration not enabled.\n";
+        cout << "Migration not enabled.\n";
         return;
     }
 
@@ -322,7 +410,7 @@ void migrate(Ptr<Node> sourceServer,
     NS_ASSERT_MSG(transmissionMode != "TCP", "TCP migration not implemented.");
     NS_ASSERT_MSG(transmissionMode == "UDP", "Invalid transmission mode.");
 
-    // std::cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
+    // cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     if (transmissionMode == "UDP") {
         ++migrationPort;
         UdpServerHelper server(migrationPort);
@@ -349,7 +437,7 @@ void migrate(Ptr<Node> sourceServer,
     }
     else if (transmissionMode == "TCP") {
         uint16_t servPort = migrationPort;
-        std::cout << "starting migration on port " << migrationPort << "\n";
+        cout << "starting migration on port " << migrationPort << "\n";
         migrationPort++;
 
         // Create a packet sink to receive these packets on n2...
@@ -376,7 +464,7 @@ void onOffApplication(Ptr<Node> ueNode,
 {
 
     uint16_t servPort = applicationPort;
-    std::cout << "requesting application on port " << applicationPort << "\n";
+    cout << "requesting application on port " << applicationPort << "\n";
     applicationPort++;
 
     // Create a packet sink to receive these packets on n2...
@@ -400,7 +488,7 @@ void StartFlow(Ptr<Socket> localSocket,
     Ipv4Address servAddress,
     uint16_t servPort)
 {
-    std::cout << "starting flow from " << localSocket;
+    cout << "starting flow from " << localSocket;
     localSocket->Connect(InetSocketAddress(servAddress, servPort)); //connect
 
     // tell the tcp implementation to call WriteUntilBufferFull again
@@ -413,13 +501,13 @@ void WriteUntilBufferFull(Ptr<Socket> localSocket, uint32_t txSpace)
 {
     // write buffer for the ith node
     // todo: differentiate the flows and return objects
-    std::cout << " starting to send.\n";
+    cout << " starting to send.\n";
     while (currentTxBytes < totalTxBytes[0] && localSocket->GetTxAvailable() > 0) {
         uint32_t left = totalTxBytes[0] - currentTxBytes;
         uint32_t dataOffset = currentTxBytes % writeSize;
         uint32_t toWrite = writeSize - dataOffset;
-        toWrite = std::min(toWrite, left);
-        toWrite = std::min(toWrite, localSocket->GetTxAvailable());
+        toWrite = min(toWrite, left);
+        toWrite = min(toWrite, localSocket->GetTxAvailable());
         int amountSent = localSocket->Send(&data[dataOffset], toWrite, 0);
         if (amountSent < 0) {
             // we will be called again when new tx space becomes available.
@@ -433,17 +521,16 @@ void WriteUntilBufferFull(Ptr<Socket> localSocket, uint32_t txSpace)
 int getCellId(int imsi)
 {
     // start this variable at an arbitrary value
-    int cell = 6666;
+    int cell = -1;
     for (int i = 0; i < numNodes; ++i) {
         for (int j = 0; j < numEdgeNodes; ++j) {
             if (cell_ue[j][i] != 0) {
-                std::cout << "user " << i << " connected to cell " << j << "\n";
+                cout << "user " << i << " connected to cell " << j << "\n";
                 cell = j;
             }
         }
     }
-    // if the value hasn't changed, raise an error
-    NS_ASSERT_MSG(cell != 6666, "serving cell not found.");
+    // handle the unexpected value at upper layers if no connection if found
     return cell;
 }
 
@@ -471,10 +558,10 @@ int main(int argc, char* argv[])
     }
 
     // fill all edge nodes with 10 processing units
-    std::fill(resources, resources + numEdgeNodes, initialResources);
+    fill(resources, resources + numEdgeNodes, initialResources);
     // set the max bytes tranferred by each request
     // NOT BEING USED WITH UDP
-    std::fill(totalTxBytes, totalTxBytes + numEdgeNodes, 9999999990);
+    fill(totalTxBytes, totalTxBytes + numEdgeNodes, 9999999990);
 
     // Command line arguments
     CommandLine cmd;
@@ -520,10 +607,10 @@ int main(int argc, char* argv[])
     lteHelper->SetEnbAntennaModelAttribute("MaxGain", DoubleValue(0.0));
 
     // Handover configuration
-    lteHelper->SetHandoverAlgorithmType("ns3::HoveHandoverAlgorithm");
-    lteHelper->SetHandoverAlgorithmAttribute("mobilityTrace", StringValue(mobilityTrace));
-    // lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
-    //     TimeValue(MilliSeconds(256)));
+    lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
+    // lteHelper->SetHandoverAlgorithmAttribute("mobilityTrace", StringValue(mobilityTrace));
+    lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
+        TimeValue(MilliSeconds(0)));
 
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
@@ -648,7 +735,7 @@ int main(int argc, char* argv[])
     //     for (int j = 0; j < 2; ++j){
     //         if (i == j)
     //             continue;
-    //         std::cout << "starting migration from " << i << " to " << j << ".\n";
+    //         cout << "starting migration from " << i << " to " << j << ".\n";
     //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i),
     //                 edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
     //     }
@@ -680,19 +767,19 @@ int main(int argc, char* argv[])
     monitor->CheckForLostPackets();
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
     FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
-    for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
+    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
-        std::cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
-        std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
-        std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-        std::cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
-        std::cout << "  Rx Packets: " << i->second.rxPackets << "\n";
-        std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-        std::cout << "  Lost Packets:   " << i->second.lostPackets << "\n";
-        std::cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
+        cout << "  Tx Packets: " << i->second.txPackets << "\n";
+        cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
+        cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        cout << "  Rx Packets: " << i->second.rxPackets << "\n";
+        cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
+        cout << "  Lost Packets:   " << i->second.lostPackets << "\n";
+        cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
         if (i->second.rxBytes)
-            std::cout << "  DelaySum: " << i->second.jitterSum / (i->second.rxPackets + i->second.txPackets) << "\n";
-        std::cout << "......................................\n";
+            cout << "  DelaySum: " << i->second.jitterSum / (i->second.rxPackets + i->second.txPackets) << "\n";
+        cout << "......................................\n";
     }
 
     // serialize flow monitor to xml
