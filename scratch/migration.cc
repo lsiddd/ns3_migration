@@ -53,8 +53,8 @@ int getCellId(int imsi);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 50;
-const uint16_t numEnbs = 50;
+const uint16_t numNodes = 10;
+const uint16_t numEnbs = 40;
 const uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
@@ -94,7 +94,7 @@ unsigned int handNumber = 0; // number of handovers executed
 uint16_t resources[numEdgeNodes];
 int initialResources = 10;
 // units of processing used at the moment
-uint16_t serverLoad[numEdgeNodes];
+uint16_t serverQoS[numEdgeNodes];
 
 Time managerInterval = MilliSeconds(100);
 // size of the sevices to be migrated in bytes
@@ -130,7 +130,15 @@ uint8_t data[writeSize];
 // implement a sending "Application", although not a proper ns3::Application
 // subclass.
 
+void probeQoS() {
+    for (int i = 0; i < numEdgeNodes; ++i) {
+        // serverQoS[i] = getDelay(ueNodes.Get());
+    }
+}
+
 void HandoverPrediction (int nodeId, int timeWindow){
+    // receives id of the node being considered, and a time window,
+    // which means up to how many seconds in the future to check for handovers
 
     // means no connection has been found
     // happens if it's called too early in the simulation
@@ -139,7 +147,6 @@ void HandoverPrediction (int nodeId, int timeWindow){
 
     // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
     ifstream mobilityFile (mobilityTrace);
-    ifstream cellsFile ("v2x_temp/cellsList");
 
     string nodeColumn;
     string fileLines;
@@ -157,42 +164,40 @@ void HandoverPrediction (int nodeId, int timeWindow){
     while(getline(mobilityFile, fileLines)) {
         if (fileLines.find("setdest") != string::npos) {
 
-            stringstream ss(fileLines);
-            // cout << ss.str();
-            ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;
+            // extract columns from the file lines
 
+            // variable to match the search substring
             nodeColumn = "\"$node_(" + to_string(nodeId) + ")";
-            // cout << "nodeColumn" << nodeColumn << "\n";
-            // cout << "aux: " << aux4 << "\n";
-            // cin.get();
 
             for (int time_offset = 0; time_offset < timeWindow; time_offset++)
-                if (aux4 == nodeColumn && Simulator::Now().GetSeconds() == round(node_position_time)) {
-                    cout << ss.str();
-                    cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
+                if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + time_offset == round(node_position_time)) {
+
+                    stringstream ss(fileLines);
+                    ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;
+
+                    // cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
                     Vector uePos = Vector(node_x, node_y, node_z);
 
                     // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
 
-
-                    for (int i = 0; i < numEnbs; ++i){
-                        Vector enbPos = enbNodes.Get(i)->GetObject<MobilityModel> ()->GetPosition ();
+                    for (int cellIdIterator = 0; cellIdIterator < numEnbs; ++cellIdIterator){
+                        Vector enbPos = enbNodes.Get(cellIdIterator)->GetObject<MobilityModel> ()->GetPosition ();
                         double distanceUeEnb = CalculateDistance(uePos, enbPos);
 
-                        // cout << "node " <<  nodeId << " " << distanceUeEnb << " from cell " << i << "\n";
+                        // cout << "node " <<  nodeId << " " << distanceUeEnb << " from cell " << cellIdIterator << "\n";
                         if ( distanceUeEnb < shortestDistance) {
-                            closestCell = i;
+                            closestCell = cellIdIterator;
                             shortestDistance = distanceUeEnb;
                         }
                         if (closestCell != getCellId(nodeId))
-                            cout << "Handover to happen at " << node_position_time << endl;
+                            cout << "node " << nodeId << ": Handover to happen at " << node_position_time 
+                            << "from" << getCellId(nodeId) << " to " << cellIdIterator << endl;
                     }
                     // cin.get();
                 }
         }
     }
 
-    cellsFile.close();
     mobilityFile.close();
 }
 
@@ -213,6 +218,10 @@ void NotifyConnectionEstablishedUe(string context,
     outfile << imsi << endl;
     outfile.close();
 
+    if (resources[cellid - 1] == 0)
+        cout << "Failed to allocate\n";
+    else
+        resources[cellid - 1]--;
     cell_ue[cellid - 1][imsi - 1] = rnti;
 }
 
@@ -291,11 +300,11 @@ Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosi
 
     if (randomCellAlloc) {
         cout << "random alloc\n";
-        for (int i = 0; i < numEnbs; ++i) {
+        for (int cellIdIterator = 0; cellIdIterator < numEnbs; ++cellIdIterator) {
             x = rand() % 2000;
             y = rand() % 2000;
             HpnPosition->Add(Vector(x, y, 15));
-            outfile << i + 1 << " " << x << " " << y << endl;
+            outfile << cellIdIterator + 1 << " " << x << " " << y << endl;
         }
         outfile.close();
         return HpnPosition;
@@ -304,8 +313,8 @@ Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosi
         cout << "row alloc\n";
         int x_start = 700;
         int y_start = 500;
-        for (int i = 0; i < numEnbs; ++i)
-            HpnPosition->Add(Vector(x_start + distance * i, y_start, 25));
+        for (int cellIdIterator = 0; cellIdIterator < numEnbs; ++cellIdIterator)
+            HpnPosition->Add(Vector(x_start + distance * cellIdIterator, y_start, 25));
         return HpnPosition;
     }
     else {
@@ -315,15 +324,15 @@ Ptr <ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosi
 
         HpnPosition->Add(Vector(x_start, y_start, 25));
 
-        for (double i = 0; i < 2 * PI; i += PI / 3) {
-            HpnPosition->Add(Vector(x_start + distance * cos(i), y_start + distance * sin(i), 25));
+        for (double cellIdIterator = 0; cellIdIterator < 2 * PI; cellIdIterator += PI / 3) {
+            HpnPosition->Add(Vector(x_start + distance * cos(cellIdIterator), y_start + distance * sin(cellIdIterator), 25));
         }
 
-        for (double i = 0; i < 2 * PI; i += PI / 3) {
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 + 10, y_start + distance * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 + 10, y_start + distance * sin(i) - rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) - rand() % 100 + 10, 10));
+        for (double cellIdIterator = 0; cellIdIterator < 2 * PI; cellIdIterator += PI / 3) {
+            HpnPosition->Add(Vector(x_start + distance * cos(cellIdIterator) + rand() % 100 + 10, y_start + distance * sin(cellIdIterator) + rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + distance * cos(cellIdIterator) + rand() % 100 + 10, y_start + distance * sin(cellIdIterator) - rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + distance * cos(cellIdIterator) + rand() % 100 - 10, y_start + distance * sin(cellIdIterator) + rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + distance * cos(cellIdIterator) + rand() % 100 - 10, y_start + distance * sin(cellIdIterator) - rand() % 100 + 10, 10));
         }
         return HpnPosition;
     }
@@ -335,17 +344,17 @@ void manager()
 
     cout << "manager started at " << Simulator::Now() << " \n";
 
-    for (int i = 0; i < numEdgeNodes; ++i) {
-        cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
+    for (int cellIdIterator = 0; cellIdIterator < numEdgeNodes; ++cellIdIterator) {
+        cout << "Edge server n " << cellIdIterator << " with " << resources[cellIdIterator] << " resource units\n";
     }
     cout << "..................................\n\n\n";
 
-    HandoverPrediction(0, 1);
+    HandoverPrediction(0, 5);
 
     Simulator::Schedule(managerInterval, &manager);
 }
 
-void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
+void getDelay(Ptr<Node> edgeProbeNode, Ptr<Node> ueProbeNode, Ipv4Address edgeAddress)
 {
     UdpEchoServerHelper echoServer(pingPort);
     cout << "pinging on port " << pingPort << "\n";
@@ -355,14 +364,16 @@ void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAd
     serverApps.Start(Simulator::Now());
     serverApps.Stop(Simulator::Now() + Seconds(1));
 
-    UdpEchoClientHelper echoClient(ueAddress, pingPort);
-    echoClient.SetAttribute("MaxPackets", UintegerValue(10));
+    UdpEchoClientHelper echoClient(edgeAddress, pingPort);
+    echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(0.2)));
     echoClient.SetAttribute("PacketSize", UintegerValue(1024));
 
     ApplicationContainer clientApps = echoClient.Install(ueProbeNode);
     clientApps.Start(Simulator::Now());
     clientApps.Stop(Simulator::Now() + Seconds(1));
+
+    // anything with 1+ second of delay gets discarded
 }
 
 int getNodeId(Ptr <Node> node, string type = "edge") {
@@ -377,9 +388,9 @@ int getNodeId(Ptr <Node> node, string type = "edge") {
         tmpNodesContainer = enbNodes;
 
     // find th enode id
-    for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i){
-        if(node == tmpNodesContainer.Get(i))
-            return i;
+    for (uint32_t cellIdIterator = 0; cellIdIterator < tmpNodesContainer.GetN(); ++cellIdIterator){
+        if(node == tmpNodesContainer.Get(cellIdIterator))
+            return cellIdIterator;
     }
 
     // return -1 if no cell has been found
@@ -522,11 +533,12 @@ int getCellId(int imsi)
 {
     // start this variable at an arbitrary value
     int cell = -1;
-    for (int i = 0; i < numNodes; ++i) {
+    for (int cellIdIterator = 0; cellIdIterator < numNodes; ++cellIdIterator) {
         for (int j = 0; j < numEdgeNodes; ++j) {
-            if (cell_ue[j][i] != 0) {
-                cout << "user " << i << " connected to cell " << j << "\n";
+            if (cell_ue[j][cellIdIterator] != 0) {
                 cell = j;
+                if (verbose)
+                    cout << "user " << cellIdIterator << " connected to cell " << j << "\n";
             }
         }
     }
@@ -552,9 +564,9 @@ int main(int argc, char* argv[])
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
 
     // initialize the tx buffer.
-    for (uint32_t i = 0; i < writeSize; ++i) {
-        char m = toascii(97 + i % 26);
-        data[i] = m;
+    for (uint32_t cellIdIterator = 0; cellIdIterator < writeSize; ++cellIdIterator) {
+        char m = toascii(97 + cellIdIterator % 26);
+        data[cellIdIterator] = m;
     }
 
     // fill all edge nodes with 10 processing units
@@ -587,7 +599,7 @@ int main(int argc, char* argv[])
         UintegerValue(1));
     // path loss model
     lteHelper->SetAttribute("PathlossModel",
-        StringValue("ns3::NakagamiPropagationLossModel"));
+        StringValue("ns3::RangePropagationLossModel"));
     // UL and DL frequencies
     lteHelper->SetEnbDeviceAttribute("DlEarfcn", UintegerValue(100));
     lteHelper->SetEnbDeviceAttribute("UlEarfcn", UintegerValue(18100));
@@ -611,6 +623,8 @@ int main(int argc, char* argv[])
     // lteHelper->SetHandoverAlgorithmAttribute("mobilityTrace", StringValue(mobilityTrace));
     lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
         TimeValue(MilliSeconds(0)));
+    lteHelper->SetHandoverAlgorithmAttribute("Hysteresis",
+        DoubleValue(0));
 
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
@@ -632,19 +646,19 @@ int main(int argc, char* argv[])
     ipv4h.SetBase("1.0.0.0", "255.0.0.0");
 
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
-    for (int i = 0; i < numEdgeNodes; ++i) {
+    for (int cellIdIterator = 0; cellIdIterator < numEdgeNodes; ++cellIdIterator) {
         // Create the Internet
         PointToPointHelper p2ph;
         p2ph.SetDeviceAttribute("DataRate", DataRateValue(DataRate("100Gb/s")));
         p2ph.SetDeviceAttribute("Mtu", UintegerValue(1500));
         p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(0)));
-        NetDeviceContainer internetDevices = p2ph.Install(pgw, edgeNodes.Get(i));
+        NetDeviceContainer internetDevices = p2ph.Install(pgw, edgeNodes.Get(cellIdIterator));
         Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
         // interface 0 is localhost, 1 is the p2p device
-        fogNodesAddresses[i][0] = internetIpIfaces.GetAddress(1);
+        fogNodesAddresses[cellIdIterator][0] = internetIpIfaces.GetAddress(1);
 
         // add network routes to fog nodes
-        Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(i)->GetObject<Ipv4>());
+        Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(cellIdIterator)->GetObject<Ipv4>());
         remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
         // p2ph.EnablePcapAll("lena-simple-epc-backhaul");
     }
@@ -686,8 +700,8 @@ int main(int argc, char* argv[])
     csma.SetChannelAttribute("Delay", StringValue("0ms"));
     NetDeviceContainer d2345 = csma.Install(edgeNodes);
     Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(d2345);
-    for (uint32_t i = 0; i < edgeIpIfaces.GetN(); ++i) {
-        fogNodesAddresses[i][1] = edgeIpIfaces.GetAddress(i);
+    for (uint32_t cellIdIterator = 0; cellIdIterator < edgeIpIfaces.GetN(); ++cellIdIterator) {
+        fogNodesAddresses[cellIdIterator][1] = edgeIpIfaces.GetAddress(cellIdIterator);
     }
     NS_LOG_UNCOND(edgeIpIfaces.GetAddress(0));
 
@@ -717,27 +731,27 @@ int main(int argc, char* argv[])
     // --------------------EVENTS-----------------------------------------
 
     // //service requests-------------------
-    //   for (int i = 0; i < numNodes; ++i)
-    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i][0], ueIpIface.GetAddress(i));
+    //   for (int cellIdIterator = 0; cellIdIterator < numNodes; ++cellIdIterator)
+    //     onOffApplication(ueNodes.Get(cellIdIterator), edgeNodes.Get(cellIdIterator), fogNodesAddresses[cellIdIterator][0], ueIpIface.GetAddress(cellIdIterator));
 
     //   Simulator::Schedule(Seconds(10), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
 
     //   Simulator::Schedule(Seconds(5), & stopFlow, 0);
 
-    // for (int i = 0; i < numNodes; ++i){
-    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i], ueIpIface.GetAddress(i));
-    //     onOffApplication(edgeNodes.Get(i), ueNodes.Get(i), ueIpIface.GetAddress(i), fogNodesAddresses[i]);
+    // for (int cellIdIterator = 0; cellIdIterator < numNodes; ++cellIdIterator){
+    //     onOffApplication(ueNodes.Get(cellIdIterator), edgeNodes.Get(cellIdIterator), fogNodesAddresses[cellIdIterator], ueIpIface.GetAddress(cellIdIterator));
+    //     onOffApplication(edgeNodes.Get(cellIdIterator), ueNodes.Get(cellIdIterator), ueIpIface.GetAddress(cellIdIterator), fogNodesAddresses[cellIdIterator]);
     // }
 
     // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    // for (int i = 0; i < 2; ++i)
+    // for (int cellIdIterator = 0; cellIdIterator < 2; ++cellIdIterator)
     //     for (int j = 0; j < 2; ++j){
-    //         if (i == j)
+    //         if (cellIdIterator == j)
     //             continue;
-    //         cout << "starting migration from " << i << " to " << j << ".\n";
-    //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i),
-    //                 edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
+    //         cout << "starting migration from " << cellIdIterator << " to " << j << ".\n";
+    //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(cellIdIterator),
+    //                 edgeNodes.Get(j), fogNodesAddresses[cellIdIterator][1], fogNodesAddresses[j][1]);
     //     }
 
     Simulator::Schedule(Seconds(2), &migrate, edgeNodes.Get(1),
@@ -767,18 +781,18 @@ int main(int argc, char* argv[])
     monitor->CheckForLostPackets();
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
     FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
-    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
-        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
-        cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
-        cout << "  Tx Packets: " << i->second.txPackets << "\n";
-        cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-        cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
-        cout << "  Rx Packets: " << i->second.rxPackets << "\n";
-        cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-        cout << "  Lost Packets:   " << i->second.lostPackets << "\n";
-        cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
-        if (i->second.rxBytes)
-            cout << "  DelaySum: " << i->second.jitterSum / (i->second.rxPackets + i->second.txPackets) << "\n";
+    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator cellIdIterator = stats.begin(); cellIdIterator != stats.end(); ++cellIdIterator) {
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(cellIdIterator->first);
+        cout << "Flow " << cellIdIterator->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
+        cout << "  Tx Packets: " << cellIdIterator->second.txPackets << "\n";
+        cout << "  Tx Bytes:   " << cellIdIterator->second.txBytes << "\n";
+        cout << "  TxOffered:  " << cellIdIterator->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        cout << "  Rx Packets: " << cellIdIterator->second.rxPackets << "\n";
+        cout << "  Rx Bytes:   " << cellIdIterator->second.rxBytes << "\n";
+        cout << "  Lost Packets:   " << cellIdIterator->second.lostPackets << "\n";
+        cout << "  Throughput: " << cellIdIterator->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        if (cellIdIterator->second.rxBytes)
+            cout << "  DelaySum: " << cellIdIterator->second.jitterSum / (cellIdIterator->second.rxPackets + cellIdIterator->second.txPackets) << "\n";
         cout << "......................................\n";
     }
 
