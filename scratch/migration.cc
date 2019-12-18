@@ -53,15 +53,15 @@ int getCellId(int imsi);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 100;
-const uint16_t numEnbs = 30;
+const uint16_t numNodes = 50;
+const uint16_t numEnbs = 10;
 const uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
-string mobilityTrace = "mobil/bonnmotion.tcl";
+string mobilityTrace = "mobil/rw.ns_movements";
 
 // simulation variables
-Time simTime = Seconds(500);
+Time simTime = Seconds(20);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
@@ -95,8 +95,9 @@ uint16_t resources[numEdgeNodes];
 int initialResources = 5;
 // units of processing used at the moment
 uint16_t serverLoad[numEdgeNodes];
+double qosValues[numEdgeNodes];
 
-Time managerInterval = MilliSeconds(100);
+Time managerInterval = MilliSeconds(1000);
 // size of the sevices to be migrated in bytes
 uint64_t migrationSize = 2000000000;
 
@@ -108,10 +109,10 @@ bool randomCellAlloc = true;
 Time interPacketInterval = MilliSeconds(1);
 
 // control matrix
-int cellUe[numEnbs][numNodes] = {{0}};
+int cellUe[numEnbs][numNodes] = { { 0 } };
 
 // edge servers responsible for each node
-int edgeUe[numEdgeNodes][numNodes] = {{0}};
+int edgeUe[numEdgeNodes][numNodes] = { { 0 } };
 
 // IP addres of all fog nodes
 // the ith server has two addresses, the 7.0.0.X base to communicate with nodes
@@ -130,12 +131,19 @@ uint8_t data[writeSize];
 // implement a sending "Application", although not a proper ns3::Application
 // subclass.
 
-double qosProbe()
-{
-    for (int i = 0; i < numEdgeNodes; ++i) {
+int findEdge(int nodeId);
+double qosProbe();
+void HandoverPrediction(int nodeId, int timeWindow);
+int getCellId(int imsi);
+void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
 
-    }
-    return -1;
+int findEdge(int nodeId)
+{
+    int edgeId = -1;
+    for (int i = 0; i < numEdgeNodes; ++i)
+        if (edgeUe[i][nodeId])
+            edgeId = edgeUe[i][nodeId];
+    return edgeId;
 }
 
 void HandoverPrediction(int nodeId, int timeWindow)
@@ -195,7 +203,6 @@ void HandoverPrediction(int nodeId, int timeWindow)
                         if (closestCell != getCellId(nodeId))
                             cout << "Handover to happen at " << node_position_time << endl;
                     }
-                    // cin.get();
                 }
         }
     }
@@ -221,20 +228,25 @@ void NotifyConnectionEstablishedUe(string context,
     outfile << imsi << endl;
     outfile.close();
 
-    if (resources[cellid - 1] == 0){
+    if (resources[cellid - 1] == 0) {
         int realEdge;
+        // iterate untill an edge with available resources has been chosen
         do {
             realEdge = rand() % numEdgeNodes;
+
+            // make while condition true to reiterate
+            if (resources[realEdge] == 0)
+                realEdge == cellid - 1;
         } while (realEdge == cellid - 1);
 
-        cout << "Failed to allocate user" << imsi << " in edge " << cellid -1 << "\n";
+        cout << "Failed to allocate user" << imsi << " in edge " << cellid - 1 << "\n";
         cout << "allocating to random edge " << realEdge << endl;
         resources[realEdge]--;
-        edgeUe[realEdge][imsi-1] = 1;
+        edgeUe[realEdge][imsi - 1] = 1;
     }
     else {
         cout << "User " << imsi << " connected to edge " << cellid - 1 << endl;
-        edgeUe[cellid-1][imsi-1] = 1;
+        edgeUe[cellid - 1][imsi - 1] = 1;
         resources[cellid - 1]--;
     }
 
@@ -370,24 +382,66 @@ void manager()
     Simulator::Schedule(managerInterval, &manager);
 }
 
-void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress)
+void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifier)
 {
-    UdpEchoServerHelper echoServer(pingPort);
-    cout << "pinging on port " << pingPort << "\n";
-    pingPort++;
+    monitor->CheckForLostPackets();
+    stringstream uenodes_TP;
+    uenodes_TP << "UEs_UDP_Throughput";
+    ofstream UE_TP;
+    UE_TP.open(uenodes_TP.str());
 
-    ApplicationContainer serverApps = echoServer.Install(edgeProbeNode);
-    serverApps.Start(Simulator::Now());
-    serverApps.Stop(Simulator::Now() + Seconds(1));
+    stringstream uenodes_TP_log;
+    uenodes_TP_log << "UEs_UDP_Throughput_LOG";
+    ofstream UE_TP_Log;
+    UE_TP_Log.open(uenodes_TP_log.str(), ios_base::app);
+    Time now = Simulator::Now();
 
-    UdpEchoClientHelper echoClient(ueAddress, pingPort);
-    echoClient.SetAttribute("MaxPackets", UintegerValue(10));
-    echoClient.SetAttribute("Interval", TimeValue(Seconds(0.2)));
-    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
+    double txPacketsum;
+    double rxPacketsum;
+    double LostPacketsum;
+    double DropPacketsum;
+    double Delaysum;
 
-    ApplicationContainer clientApps = echoClient.Install(ueProbeNode);
-    clientApps.Start(Simulator::Now());
-    clientApps.Stop(Simulator::Now() + Seconds(1));
+    double Throughput;
+    double PDR;
+    double PLR;
+    double APD;
+
+    //Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon->GetClassifier ());
+    map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
+
+    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator iter = stats.begin(); iter != stats.end(); ++iter) {
+
+
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (iter->first);
+
+        txPacketsum += iter->second.txPackets;
+        rxPacketsum += iter->second.rxPackets;
+        LostPacketsum = txPacketsum - rxPacketsum;
+        DropPacketsum += iter->second.packetsDropped.size();
+        Delaysum += iter->second.delaySum.GetSeconds();
+
+        cout<<"Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress<<"\n";
+        cout<<"Tx Packets = " << iter->second.txPackets<<"\n";
+        cout<<"Rx Packets = " << iter->second.rxPackets<<"\n";
+
+        cout << "  All Tx Packets: " << txPacketsum << "\n";
+        cout << "  All Rx Packets: " << rxPacketsum << "\n";
+        cout << "  All Delay/Average Packet Delay (APD): " << Delaysum / txPacketsum << "\n"; //APD = Average Packet Delay : to do !
+        cout << "  All Lost Packets: " << LostPacketsum << "\n";
+        cout << "  All Drop Packets: " << DropPacketsum << "\n";
+
+        cout<<"Throughput: " << iter->second.rxBytes * 8.0 / (iter->second.timeLastRxPacket.GetSeconds()-iter->second.timeFirstTxPacket.GetSeconds()) /1024 << " Kbps\n";///1024 << " Mbps\n";
+        cout << "Packets Delivery Ratio: " << ((rxPacketsum * 100) / txPacketsum) << "%" << "\n";
+        cout << "Packets Loss Ratio: " << ((LostPacketsum * 100) / txPacketsum) << "%" << "\n";
+        cout << "Average Packet Delay: " << Delaysum / rxPacketsum << "\n";
+
+        Throughput = ((iter->second.rxBytes * 8.0) / (iter->second.timeLastRxPacket.GetSeconds() - iter->second.timeFirstTxPacket.GetSeconds())) / 1024; // / 1024;
+        PDR = ((rxPacketsum * 100) / txPacketsum);
+        PLR = ((LostPacketsum * 100) / txPacketsum); //PLR = ((LostPacketsum * 100) / (txPacketsum));
+        APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
+    }
+    Simulator::Schedule(Seconds(1), &getDelayFlowMon, monitor, classifier);
 }
 
 int getNodeId(Ptr<Node> node, string type = "edge")
@@ -451,7 +505,7 @@ void migrate(Ptr<Node> sourceServer,
 
         uint32_t MaxPacketSize = 1024;
         // uint32_t maxPacketCount = migrationSize / MaxPacketSize;
-        uint32_t maxPacketCount = 100;
+        uint32_t maxPacketCount = 10000;
         // tyr to migrate this in 10 senconds at most
         Time interPacketInterval = MilliSeconds(1);
         UdpClientHelper client(targetServerAddress, migrationPort);
@@ -461,87 +515,7 @@ void migrate(Ptr<Node> sourceServer,
         apps = client.Install(sourceServer);
         apps.Start(Simulator::Now());
     }
-    else if (transmissionMode == "TCP") {
-        uint16_t servPort = migrationPort;
-        cout << "starting migration on port " << migrationPort << "\n";
-        migrationPort++;
 
-        // Create a packet sink to receive these packets on n2...
-        PacketSinkHelper sink("ns3::TcpSocketFactory",
-            InetSocketAddress(Ipv4Address::GetAny(), servPort));
-
-        ApplicationContainer apps = sink.Install(targetServer);
-        apps.Start(Seconds(0.0));
-
-        Ptr<Socket> localSocket = Socket::CreateSocket(sourceServer, TcpSocketFactory::GetTypeId());
-        localSocket->Bind();
-
-        // Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow", MakeCallback(&CwndTracer));
-
-        Simulator::ScheduleNow(&StartFlow, localSocket,
-            sourceServerAddress, servPort);
-    }
-}
-
-void onOffApplication(Ptr<Node> ueNode,
-    Ptr<Node> edgeNode,
-    Ipv4Address fogNodesAddress,
-    Ipv4Address ueIpIface)
-{
-
-    uint16_t servPort = applicationPort;
-    cout << "requesting application on port " << applicationPort << "\n";
-    applicationPort++;
-
-    // Create a packet sink to receive these packets on n2...
-    PacketSinkHelper sink("ns3::TcpSocketFactory",
-        InetSocketAddress(Ipv4Address::GetAny(), servPort));
-
-    ApplicationContainer apps = sink.Install(ueNode);
-    apps.Start(Seconds(0.0));
-
-    Ptr<Socket> localSocket = Socket::CreateSocket(edgeNode, TcpSocketFactory::GetTypeId());
-    localSocket->Bind();
-
-    // Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow", MakeCallback(&CwndTracer));
-
-    Simulator::ScheduleNow(&StartFlow, localSocket,
-        ueIpIface, servPort);
-}
-
-//begin implementation of sending "Application"
-void StartFlow(Ptr<Socket> localSocket,
-    Ipv4Address servAddress,
-    uint16_t servPort)
-{
-    cout << "starting flow from " << localSocket;
-    localSocket->Connect(InetSocketAddress(servAddress, servPort)); //connect
-
-    // tell the tcp implementation to call WriteUntilBufferFull again
-    // if we blocked and new tx buffer space becomes available
-    localSocket->SetSendCallback(MakeCallback(&WriteUntilBufferFull));
-    WriteUntilBufferFull(localSocket, localSocket->GetTxAvailable());
-}
-
-void WriteUntilBufferFull(Ptr<Socket> localSocket, uint32_t txSpace)
-{
-    // write buffer for the ith node
-    // todo: differentiate the flows and return objects
-    cout << " starting to send.\n";
-    while (currentTxBytes < totalTxBytes[0] && localSocket->GetTxAvailable() > 0) {
-        uint32_t left = totalTxBytes[0] - currentTxBytes;
-        uint32_t dataOffset = currentTxBytes % writeSize;
-        uint32_t toWrite = writeSize - dataOffset;
-        toWrite = min(toWrite, left);
-        toWrite = min(toWrite, localSocket->GetTxAvailable());
-        int amountSent = localSocket->Send(&data[dataOffset], toWrite, 0);
-        if (amountSent < 0) {
-            // we will be called again when new tx space becomes available.
-            return;
-        }
-        currentTxBytes += amountSent;
-    }
-    localSocket->Close();
 }
 
 int getCellId(int imsi)
@@ -580,14 +554,14 @@ int main(int argc, char* argv[])
     // initialize the tx buffer.
     for (uint32_t i = 0; i < writeSize; ++i) {
         char m = toascii(97 + i % 26);
-        data[i] = m;
+        ::data[i] = m;
     }
 
     // fill all edge nodes with 10 processing units
     fill(resources, resources + numEdgeNodes, initialResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
         resources[i] = rand() % initialResources + 5;
-        cout << "Edge server " << i << "initialized with " << resources[i] << " resources" << endl;
+        cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
     // set the max bytes tranferred by each request
     // NOT BEING USED WITH UDP
@@ -746,35 +720,8 @@ int main(int argc, char* argv[])
 
     // --------------------EVENTS-----------------------------------------
 
-    // //service requests-------------------
-    //   for (int i = 0; i < numNodes; ++i)
-    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i][0], ueIpIface.GetAddress(i));
 
-    //   Simulator::Schedule(Seconds(10), & migrate, edgeNodes.Get(0), edgeNodes.Get(1), fogNodesAddresses[0], fogNodesAddresses[1]);
-
-    //   Simulator::Schedule(Seconds(5), & stopFlow, 0);
-
-    // for (int i = 0; i < numNodes; ++i){
-    //     onOffApplication(ueNodes.Get(i), edgeNodes.Get(i), fogNodesAddresses[i], ueIpIface.GetAddress(i));
-    //     onOffApplication(edgeNodes.Get(i), ueNodes.Get(i), ueIpIface.GetAddress(i), fogNodesAddresses[i]);
-    // }
-
-    // Simulator::Schedule(Seconds(5), &getDelay, ueNodes.Get(0), edgeNodes.Get(0), ueIpIface.GetAddress(0), fogNodesAddresses[0]);
     Simulator::Schedule(Simulator::Now(), &manager);
-    // for (int i = 0; i < 2; ++i)
-    //     for (int j = 0; j < 2; ++j){
-    //         if (i == j)
-    //             continue;
-    //         cout << "starting migration from " << i << " to " << j << ".\n";
-    //         Simulator::Schedule(Seconds(rand()%5 + 5), & migrate, edgeNodes.Get(i),
-    //                 edgeNodes.Get(j), fogNodesAddresses[i][1], fogNodesAddresses[j][1]);
-    //     }
-
-    Simulator::Schedule(Seconds(2), &migrate, edgeNodes.Get(1),
-        edgeNodes.Get(0), fogNodesAddresses[1][1], fogNodesAddresses[0][1]);
-
-    Simulator::Schedule(Seconds(2), &migrate, edgeNodes.Get(0),
-        edgeNodes.Get(1), fogNodesAddresses[0][1], fogNodesAddresses[1][1]);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
@@ -790,12 +737,14 @@ int main(int argc, char* argv[])
     // intall flow monitor and get stats
     FlowMonitorHelper flowmon;
     Ptr<FlowMonitor> monitor = flowmon.InstallAll();
+    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
+
+    getDelayFlowMon(monitor, classifier);
 
     Simulator::Stop(simTime);
     Simulator::Run();
 
     monitor->CheckForLostPackets();
-    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
     FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
     for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
