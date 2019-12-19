@@ -41,6 +41,16 @@ using namespace std;
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
+/*
+Algoprithms to be supported:
+    MSMF
+    greedy
+    no migration
+    predictive
+    QoS
+*/
+
+string algorithm = "MSMF";
 
 // function prototipes
 void onOffApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
@@ -53,15 +63,15 @@ int getCellId(int imsi);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 50;
-const uint16_t numEnbs = 10;
+const uint16_t numNodes = 1;
+const uint16_t numEnbs = 20;
 const uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
 string mobilityTrace = "mobil/rw.ns_movements";
 
 // simulation variables
-Time simTime = Seconds(20);
+Time simTime = Seconds(100);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
@@ -81,9 +91,6 @@ bool verbose = false;
 
 // perform migrations
 bool doMigrate = true;
-
-// use TCP or UDP in the flows
-string transmissionMode = "UDP";
 
 unsigned int handNumber = 0; // number of handovers executed
 
@@ -119,23 +126,15 @@ int edgeUe[numEdgeNodes][numNodes] = { { 0 } };
 // and the 22.0.0.X base for migrations
 Ipv4Address fogNodesAddresses[numEdgeNodes][2];
 
-// TCP parameters
-static uint64_t totalTxBytes[numNodes]; // limit for each node
-static uint32_t currentTxBytes = 0;
-// Perform series of 1040 byte writes (this is a multiple of 26 since
-// we want to detect data splicing in the output stream)
-static const uint32_t writeSize = 1000;
-uint8_t data[writeSize];
-// These are for starting the writing process, and handling the sending
-// socket's notification upcalls (events).  These two together more or less
-// implement a sending "Application", although not a proper ns3::Application
-// subclass.
-
 int findEdge(int nodeId);
 double qosProbe();
 void HandoverPrediction(int nodeId, int timeWindow);
 int getCellId(int imsi);
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
+
+void probeQoS() {
+    
+}
 
 int findEdge(int nodeId)
 {
@@ -151,7 +150,7 @@ void HandoverPrediction(int nodeId, int timeWindow)
 
     // means no connection has been found
     // happens if it's called too early in the simulation
-    if (getCellId(0) == -1)
+    if (getCellId(nodeId) == -1)
         return;
 
     // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
@@ -183,27 +182,37 @@ void HandoverPrediction(int nodeId, int timeWindow)
             // cout << "aux: " << aux4 << "\n";
             // cin.get();
 
-            for (int time_offset = 0; time_offset < timeWindow; time_offset++)
-                if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + time_offset == round(node_position_time)) {
-                    cout << ss.str();
-                    cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
-                    Vector uePos = Vector(node_x, node_y, node_z);
+            // for (int time_offset = 0; time_offset < timeWindow; time_offset++)
+            int time_offset = 5;
+            if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + time_offset == round(node_position_time)) {
+                cout << time_offset << endl;
+                cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
+                cout << ss.str();
+                Vector uePos = Vector(node_x, node_y, node_z);
 
-                    // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
+                // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
 
-                    for (int i = 0; i < numEnbs; ++i) {
-                        Vector enbPos = enbNodes.Get(i)->GetObject<MobilityModel>()->GetPosition();
-                        double distanceUeEnb = CalculateDistance(uePos, enbPos);
+                // calculate distance from node to each enb
+                for (int i = 0; i < numEnbs; ++i) {
+                    // get Ith enb  position
+                    Vector enbPos = enbNodes.Get(i)->GetObject<MobilityModel>()->GetPosition();
+                    // get distance
+                    double distanceUeEnb = CalculateDistance(uePos, enbPos);
 
-                        // cout << "node " <<  nodeId << " " << distanceUeEnb << " from cell " << i << "\n";
-                        if (distanceUeEnb < shortestDistance) {
-                            closestCell = i;
-                            shortestDistance = distanceUeEnb;
-                        }
-                        if (closestCell != getCellId(nodeId))
-                            cout << "Handover to happen at " << node_position_time << endl;
+                    // get closest enb
+                    if (distanceUeEnb < shortestDistance) {
+                        closestCell = i;
+                        shortestDistance = distanceUeEnb;
                     }
+
                 }
+
+                // if closest enb != current, predict handover
+                if (closestCell != getCellId(nodeId)){
+                    cout << "Handover to happen at " << node_position_time << endl;
+                    cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
+                }
+            }
         }
     }
 
@@ -233,7 +242,6 @@ void NotifyConnectionEstablishedUe(string context,
         // iterate untill an edge with available resources has been chosen
         do {
             realEdge = rand() % numEdgeNodes;
-
             // make while condition true to reiterate
             if (resources[realEdge] == 0)
                 realEdge == cellid - 1;
@@ -370,7 +378,7 @@ void manager()
 {
     // todo: read migration log generated by handover manager
 
-    cout << "manager started at " << Simulator::Now() << " \n";
+    cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
 
     for (int i = 0; i < numEdgeNodes; ++i) {
         cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
@@ -441,7 +449,7 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         PLR = ((LostPacketsum * 100) / txPacketsum); //PLR = ((LostPacketsum * 100) / (txPacketsum));
         APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
     }
-    Simulator::Schedule(Seconds(1), &getDelayFlowMon, monitor, classifier);
+    Simulator::Schedule(Seconds(0.1), &getDelayFlowMon, monitor, classifier);
 }
 
 int getNodeId(Ptr<Node> node, string type = "edge")
@@ -486,35 +494,30 @@ void migrate(Ptr<Node> sourceServer,
 
     resources[getNodeId(sourceServer)]++;
     resources[getNodeId(targetServer)]--;
-    // make sure the transmission uses only udp (for now)
-    NS_ASSERT_MSG(transmissionMode != "TCP", "TCP migration not implemented.");
-    NS_ASSERT_MSG(transmissionMode == "UDP", "Invalid transmission mode.");
 
     // cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
-    if (transmissionMode == "UDP") {
-        ++migrationPort;
-        UdpServerHelper server(migrationPort);
-        ApplicationContainer apps = server.Install(targetServer);
-        apps.Start(Simulator::Now());
-        // apps.Stop (Simulator::Now()+Seconds(5));
+    ++migrationPort;
+    UdpServerHelper server(migrationPort);
+    ApplicationContainer apps = server.Install(targetServer);
+    apps.Start(Simulator::Now());
+    // apps.Stop (Simulator::Now()+Seconds(5));
 
-        //
-        // Create one UdpClient application to send UDP datagrams from node zero to
-        // node one.
-        //
+    //
+    // Create one UdpClient application to send UDP datagrams from node zero to
+    // node one.
+    //
 
-        uint32_t MaxPacketSize = 1024;
-        // uint32_t maxPacketCount = migrationSize / MaxPacketSize;
-        uint32_t maxPacketCount = 10000;
-        // tyr to migrate this in 10 senconds at most
-        Time interPacketInterval = MilliSeconds(1);
-        UdpClientHelper client(targetServerAddress, migrationPort);
-        client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
-        client.SetAttribute("Interval", TimeValue(interPacketInterval));
-        client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
-        apps = client.Install(sourceServer);
-        apps.Start(Simulator::Now());
-    }
+    uint32_t MaxPacketSize = 1024;
+    // uint32_t maxPacketCount = migrationSize / MaxPacketSize;
+    uint32_t maxPacketCount = 10000;
+    // tyr to migrate this in 10 senconds at most
+    Time interPacketInterval = MilliSeconds(1);
+    UdpClientHelper client(targetServerAddress, migrationPort);
+    client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+    client.SetAttribute("Interval", TimeValue(interPacketInterval));
+    client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
+    apps = client.Install(sourceServer);
+    apps.Start(Simulator::Now());
 
 }
 
@@ -551,21 +554,12 @@ int main(int argc, char* argv[])
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
 
-    // initialize the tx buffer.
-    for (uint32_t i = 0; i < writeSize; ++i) {
-        char m = toascii(97 + i % 26);
-        ::data[i] = m;
-    }
-
     // fill all edge nodes with 10 processing units
     fill(resources, resources + numEdgeNodes, initialResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
         resources[i] = rand() % initialResources + 5;
         cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
-    // set the max bytes tranferred by each request
-    // NOT BEING USED WITH UDP
-    fill(totalTxBytes, totalTxBytes + numEdgeNodes, 9999999990);
 
     // Command line arguments
     CommandLine cmd;
@@ -612,7 +606,8 @@ int main(int argc, char* argv[])
 
     // Handover configuration
     lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
-    // lteHelper->SetHandoverAlgorithmAttribute("mobilityTrace", StringValue(mobilityTrace));
+    lteHelper->SetHandoverAlgorithmAttribute("Hysteresis",
+        DoubleValue(0));
     lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
         TimeValue(MilliSeconds(0)));
 
