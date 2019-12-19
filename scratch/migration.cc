@@ -53,17 +53,13 @@ Algoprithms to be supported:
 string algorithm = "MSMF";
 
 // function prototipes
-void onOffApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
-void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
-void WriteUntilBufferFull(Ptr<Socket>, uint32_t);
-void StartFlow(Ptr<Socket>, Ipv4Address, uint16_t);
 void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
-int getCellId(int imsi);
+int getCellId(int nodeId);
 
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 1;
+const uint16_t numNodes = 10;
 const uint16_t numEnbs = 20;
 const uint16_t numEdgeNodes = numEnbs;
 
@@ -83,7 +79,6 @@ ApplicationContainer apps;
 
 // port ranges for each application
 static int migrationPort = 1000;
-static int pingPort = 2000;
 static int applicationPort = 3000;
 
 // enable logs
@@ -126,23 +121,21 @@ int edgeUe[numEdgeNodes][numNodes] = { { 0 } };
 // and the 22.0.0.X base for migrations
 Ipv4Address fogNodesAddresses[numEdgeNodes][2];
 
-int findEdge(int nodeId);
+// structure to store handover predictions
+// [0] -> time of the handover
+// [1] -> source cell
+// [2] -> target cell
+int handoverPredictions[numNodes][3];
+
+int getEdge(int nodeId);
 double qosProbe();
 void HandoverPrediction(int nodeId, int timeWindow);
 int getCellId(int imsi);
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
+void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address);
 
 void probeQoS() {
     
-}
-
-int findEdge(int nodeId)
-{
-    int edgeId = -1;
-    for (int i = 0; i < numEdgeNodes; ++i)
-        if (edgeUe[i][nodeId])
-            edgeId = edgeUe[i][nodeId];
-    return edgeId;
 }
 
 void HandoverPrediction(int nodeId, int timeWindow)
@@ -155,7 +148,6 @@ void HandoverPrediction(int nodeId, int timeWindow)
 
     // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
     ifstream mobilityFile(mobilityTrace);
-    ifstream cellsFile("v2x_temp/cellsList");
 
     string nodeColumn;
     string fileLines;
@@ -185,9 +177,6 @@ void HandoverPrediction(int nodeId, int timeWindow)
             // for (int time_offset = 0; time_offset < timeWindow; time_offset++)
             int time_offset = 5;
             if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + time_offset == round(node_position_time)) {
-                cout << time_offset << endl;
-                cout << "node " << nodeId << " at " << node_x << " " << node_y << "\n";
-                cout << ss.str();
                 Vector uePos = Vector(node_x, node_y, node_z);
 
                 // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
@@ -211,12 +200,14 @@ void HandoverPrediction(int nodeId, int timeWindow)
                 if (closestCell != getCellId(nodeId)){
                     cout << "Handover to happen at " << node_position_time << endl;
                     cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
+                    handoverPredictions[nodeId][0] = node_position_time;
+                    handoverPredictions[nodeId][1] = getCellId(nodeId);
+                    handoverPredictions[nodeId][2] = closestCell;
                 }
             }
         }
     }
 
-    cellsFile.close();
     mobilityFile.close();
 }
 
@@ -244,7 +235,7 @@ void NotifyConnectionEstablishedUe(string context,
             realEdge = rand() % numEdgeNodes;
             // make while condition true to reiterate
             if (resources[realEdge] == 0)
-                realEdge == cellid - 1;
+                realEdge = cellid - 1;
         } while (realEdge == cellid - 1);
 
         cout << "Failed to allocate user" << imsi << " in edge " << cellid - 1 << "\n";
@@ -385,7 +376,14 @@ void manager()
     }
     cout << "..................................\n\n\n";
 
-    HandoverPrediction(0, 1);
+    for (int i = 0; i < numNodes; ++i) {
+        if (getEdge(i) != -1) {
+            // perform predictions to update prediction vector
+            HandoverPrediction(i, 5);
+            // renew applications periodically
+            requestApplication(ueNodes.Get(i), edgeNodes.Get(getEdge(i)), fogNodesAddresses[getEdge(i)][0]);
+        }
+    }
 
     Simulator::Schedule(managerInterval, &manager);
 }
@@ -395,13 +393,10 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
     monitor->CheckForLostPackets();
     stringstream uenodes_TP;
     uenodes_TP << "UEs_UDP_Throughput";
-    ofstream UE_TP;
-    UE_TP.open(uenodes_TP.str());
 
     stringstream uenodes_TP_log;
     uenodes_TP_log << "UEs_UDP_Throughput_LOG";
-    ofstream UE_TP_Log;
-    UE_TP_Log.open(uenodes_TP_log.str(), ios_base::app);
+
     Time now = Simulator::Now();
 
     double txPacketsum;
@@ -409,19 +404,25 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
     double LostPacketsum;
     double DropPacketsum;
     double Delaysum;
-
-    double Throughput;
-    double PDR;
-    double PLR;
     double APD;
 
     //Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon->GetClassifier ());
     map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
 
+    // iterate all flows
     for (map<FlowId, FlowMonitor::FlowStats>::const_iterator iter = stats.begin(); iter != stats.end(); ++iter) {
 
 
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (iter->first);
+
+        // get edge id
+        int edgeId = -1;
+        for (int i = 0; i < numEdgeNodes; ++i)
+            if(t.destinationAddress == fogNodesAddresses[i][0])
+                edgeId = i;
+        // return if flow does not belong to edge
+        if (edgeId == -1)
+            return;
 
         txPacketsum += iter->second.txPackets;
         rxPacketsum += iter->second.rxPackets;
@@ -430,24 +431,25 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         Delaysum += iter->second.delaySum.GetSeconds();
 
         cout<<"Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress<<"\n";
-        cout<<"Tx Packets = " << iter->second.txPackets<<"\n";
-        cout<<"Rx Packets = " << iter->second.rxPackets<<"\n";
+        // cout<<"Tx Packets = " << iter->second.txPackets<<"\n";
+        // cout<<"Rx Packets = " << iter->second.rxPackets<<"\n";
 
-        cout << "  All Tx Packets: " << txPacketsum << "\n";
-        cout << "  All Rx Packets: " << rxPacketsum << "\n";
-        cout << "  All Delay/Average Packet Delay (APD): " << Delaysum / txPacketsum << "\n"; //APD = Average Packet Delay : to do !
-        cout << "  All Lost Packets: " << LostPacketsum << "\n";
-        cout << "  All Drop Packets: " << DropPacketsum << "\n";
+        // cout << "  All Tx Packets: " << txPacketsum << "\n";
+        // cout << "  All Rx Packets: " << rxPacketsum << "\n";
+        // cout << "  All Delay/Average Packet Delay (APD): " << Delaysum / txPacketsum << "\n"; //APD = Average Packet Delay : to do !
+        // cout << "  All Lost Packets: " << LostPacketsum << "\n";
+        // cout << "  All Drop Packets: " << DropPacketsum << "\n";
 
-        cout<<"Throughput: " << iter->second.rxBytes * 8.0 / (iter->second.timeLastRxPacket.GetSeconds()-iter->second.timeFirstTxPacket.GetSeconds()) /1024 << " Kbps\n";///1024 << " Mbps\n";
-        cout << "Packets Delivery Ratio: " << ((rxPacketsum * 100) / txPacketsum) << "%" << "\n";
-        cout << "Packets Loss Ratio: " << ((LostPacketsum * 100) / txPacketsum) << "%" << "\n";
-        cout << "Average Packet Delay: " << Delaysum / rxPacketsum << "\n";
-
-        Throughput = ((iter->second.rxBytes * 8.0) / (iter->second.timeLastRxPacket.GetSeconds() - iter->second.timeFirstTxPacket.GetSeconds())) / 1024; // / 1024;
-        PDR = ((rxPacketsum * 100) / txPacketsum);
-        PLR = ((LostPacketsum * 100) / txPacketsum); //PLR = ((LostPacketsum * 100) / (txPacketsum));
+        // cout<<"Throughput: " << iter->second.rxBytes * 8.0 / (iter->second.timeLastRxPacket.GetSeconds()-iter->second.timeFirstTxPacket.GetSeconds()) /1024 << " Kbps\n";///1024 << " Mbps\n";
+        // cout << "Packets Delivery Ratio: " << ((rxPacketsum * 100) / txPacketsum) << "%" << "\n";
+        // cout << "Packets Loss Ratio: " << ((LostPacketsum * 100) / txPacketsum) << "%" << "\n";
         APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
+        qosValues[edgeId] = APD;
+        cout << "Average Packet Delay: " << APD<< "\n";
+
+        // Throughput = ((iter->second.rxBytes * 8.0) / (iter->second.timeLastRxPacket.GetSeconds() - iter->second.timeFirstTxPacket.GetSeconds())) / 1024; // / 1024;
+        // PDR = ((rxPacketsum * 100) / txPacketsum);
+        // PLR = ((LostPacketsum * 100) / txPacketsum); //PLR = ((LostPacketsum * 100) / (txPacketsum));
     }
     Simulator::Schedule(Seconds(0.1), &getDelayFlowMon, monitor, classifier);
 }
@@ -472,6 +474,59 @@ int getNodeId(Ptr<Node> node, string type = "edge")
 
     // return -1 if no cell has been found
     return -1;
+}
+
+int getEdge(int nodeId)
+{
+    int edgeId = -1;
+    for (int i = 0; i < numEdgeNodes; ++i)
+        if (edgeUe[i][nodeId])
+            edgeId = edgeUe[i][nodeId];
+    return edgeId;
+}
+
+void requestApplication(Ptr<Node> ueNode,
+    Ptr<Node> targetServer,
+    Ipv4Address targetServerAddress)
+{
+
+    // return if migration is not available
+    // and if node is being served
+    if (!doMigrate || getEdge(getNodeId(ueNode, "ue")) < 0) {
+        cout << "Migration not enabled. :(\n";
+        return;
+    }
+
+    NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer));
+    if (resources[getNodeId(targetServer)] <= 0) {
+        NS_LOG_UNCOND("APPLICATION FAILED FOR LACK OF RESOURCES");
+        return;
+    }
+
+
+    // cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
+    ++applicationPort;
+    UdpServerHelper server(applicationPort);
+    ApplicationContainer apps = server.Install(targetServer);
+    apps.Start(Simulator::Now());
+    // apps.Stop (Simulator::Now()+Seconds(5));
+
+    //
+    // Create one UdpClient application to send UDP datagrams from node zero to
+    // node one.
+    //
+
+    uint32_t MaxPacketSize = 1024;
+    // uint32_t maxPacketCount = migrationSize / MaxPacketSize;
+    uint32_t maxPacketCount = 500;
+    // tyr to migrate this in 10 senconds at most
+    Time interPacketInterval = MilliSeconds(1);
+    UdpClientHelper client(targetServerAddress, applicationPort);
+    client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+    client.SetAttribute("Interval", TimeValue(interPacketInterval));
+    client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
+    apps = client.Install(ueNode);
+    apps.Start(Simulator::Now());
 }
 
 void migrate(Ptr<Node> sourceServer,
@@ -518,21 +573,19 @@ void migrate(Ptr<Node> sourceServer,
     client.SetAttribute("PacketSize", UintegerValue(MaxPacketSize));
     apps = client.Install(sourceServer);
     apps.Start(Simulator::Now());
-
 }
 
-int getCellId(int imsi)
+int getCellId(int nodeId)
 {
     // start this variable at an arbitrary value
     int cell = -1;
-    for (int i = 0; i < numNodes; ++i) {
-        for (int j = 0; j < numEdgeNodes; ++j) {
-            if (cellUe[j][i] != 0) {
-                // cout << "user " << i << " connected to cell " << j << "\n";
-                cell = j;
-            }
+    // for (int i = 0; i < numNodes; ++i) {
+    for (int j = 0; j < numEnbs; ++j) {
+        if (cellUe[j][nodeId] != 0) {
+            cell = j;
         }
     }
+    // }
     // handle the unexpected value at upper layers if no connection if found
     return cell;
 }
@@ -632,11 +685,14 @@ int main(int argc, char* argv[])
 
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
     for (int i = 0; i < numEdgeNodes; ++i) {
+        // create all edge nodes with different delays, some of them unfit fot the application
+
         // Create the Internet
         PointToPointHelper p2ph;
         p2ph.SetDeviceAttribute("DataRate", DataRateValue(DataRate("100Gb/s")));
         p2ph.SetDeviceAttribute("Mtu", UintegerValue(1500));
-        p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(0)));
+        // random link delay
+        p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(rand() % 20)));
         NetDeviceContainer internetDevices = p2ph.Install(pgw, edgeNodes.Get(i));
         Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
         // interface 0 is localhost, 1 is the p2p device
