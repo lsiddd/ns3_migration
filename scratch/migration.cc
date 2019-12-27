@@ -59,15 +59,15 @@ int getCellId(int nodeId);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 60;
-const uint16_t numEnbs = 20;
+const uint16_t numNodes = 30;
+const uint16_t numEnbs = 10;
 const uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
-string mobilityTrace = "mobil/rw.ns_movements";
+string mobilityTrace = "/home/lucas/Downloads/bonnmotion-3.0.1/bin/rw.ns_movements";
 
 // simulation variables
-Time simTime = Seconds(100);
+Time simTime = Seconds(40);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
@@ -115,6 +115,8 @@ int cellUe[numEnbs][numNodes] = { { 0 } };
 
 // edge servers responsible for each node
 int edgeUe[numEdgeNodes][numNodes] = { { 0 } };
+
+int edgeMigrationChart[numEdgeNodes][numEdgeNodes] = { { 0 } };
 
 // IP addres of all fog nodes
 // the ith server has two addresses, the 7.0.0.X base to communicate with nodes
@@ -327,8 +329,8 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     if (randomCellAlloc) {
         cout << "random alloc\n";
         for (int i = 0; i < numEnbs; ++i) {
-            x = rand() % 2000;
-            y = rand() % 2000;
+            x = rand() % 200;
+            y = rand() % 200;
             HpnPosition->Add(Vector(x, y, 15));
             outfile << i + 1 << " " << x << " " << y << endl;
         }
@@ -373,7 +375,6 @@ void manager()
     }
     cout << "..................................\n\n\n";
 
-    if (algorithm == "MSMF" || algorithm == "QoS") {
         for (int i = 0; i < numNodes; ++i) {
             // check if node is being served
             if (getEdge(i) != -1) {
@@ -408,9 +409,14 @@ void manager()
                         }
                         edgeId++;
                     }
-                    if (bestEdgeServer != getEdge(i)) {
-                        migrate(edgeNodes.Get(getEdge(i)), edgeNodes.Get(edgeId), 
-                                edgeNodesAddresses[getEdge(i)][1], edgeNodesAddresses[edgeId][1]);
+                    if (bestEdgeServer != getEdge(i) && algorithm != "nomigration" && algorithm != "greedy") {
+                        if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds())
+                            return;
+                        else {
+                            migrate(edgeNodes.Get(getEdge(i)), edgeNodes.Get(bestEdgeServer), 
+                                    edgeNodesAddresses[getEdge(i)][1], edgeNodesAddresses[bestEdgeServer][1]);
+                            edgeMigrationChart[i][bestEdgeServer] = Simulator::Now().GetSeconds();
+                        }
                     }
                 }
 
@@ -418,7 +424,6 @@ void manager()
                 requestApplication(ueNodes.Get(i), edgeNodes.Get(getEdge(i)), edgeNodesAddresses[getEdge(i)][0]);
             }
         }
-    }
 
     Simulator::Schedule(managerInterval, &manager);
 }
@@ -510,7 +515,7 @@ void requestApplication(Ptr<Node> ueNode,
         return;
     }
 
-    NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer));
+    NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer, "edge"));
     if (resources[getNodeId(targetServer)] <= 0) {
         // NS_LOG_UNCOND("APPLICATION FAILED FOR LACK OF RESOURCES");
         return;
@@ -531,9 +536,9 @@ void requestApplication(Ptr<Node> ueNode,
 
     uint32_t MaxPacketSize = 1024;
     // uint32_t maxPacketCount = migrationSize / MaxPacketSize;
-    uint32_t maxPacketCount = 500;
+    uint32_t maxPacketCount = 50;
     // tyr to migrate this in 10 senconds at most
-    Time interPacketInterval = MilliSeconds(1);
+    Time interPacketInterval = MilliSeconds(10);
     UdpClientHelper client(targetServerAddress, applicationPort);
     client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
     client.SetAttribute("Interval", TimeValue(interPacketInterval));
@@ -554,11 +559,14 @@ void migrate(Ptr<Node> sourceServer,
         return;
     }
 
-    NS_LOG_UNCOND("Migration from node " << getNodeId(sourceServer) << " to node " << getNodeId(targetServer));
     if (resources[getNodeId(targetServer)] <= 0) {
         NS_LOG_UNCOND("MIGRATION FAILED FOR LACK OF RESOURCES");
         return;
     }
+    if (getNodeId(targetServer) < 0)
+        return;
+    
+    NS_LOG_UNCOND("Migration from node " << getNodeId(sourceServer) << " to node " << getNodeId(targetServer));
 
     resources[getNodeId(sourceServer)]++;
     resources[getNodeId(targetServer)]--;
