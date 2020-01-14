@@ -59,12 +59,12 @@ int getCellId(int nodeId);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 30;
-const uint16_t numEnbs = 10;
+const uint16_t numNodes = 20;
+const uint16_t numEnbs = 20;
 const uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
-string mobilityTrace = "/home/lucas/Downloads/bonnmotion-3.0.1/bin/rw.ns_movements";
+string mobilityTrace = "mobil/rw.ns_movements";
 
 // simulation variables
 Time simTime = Seconds(40);
@@ -129,6 +129,8 @@ Ipv4Address edgeNodesAddresses[numEdgeNodes][2];
 // [2] -> target cell
 int handoverPredictions[numNodes][3];
 
+
+// function prototypes
 int getEdge(int nodeId);
 double qosProbe();
 void HandoverPrediction(int nodeId, int timeWindow);
@@ -366,6 +368,8 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     }
 }
 
+
+// migrations manager
 void manager()
 {
     cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
@@ -373,11 +377,17 @@ void manager()
     for (int i = 0; i < numEdgeNodes; ++i) {
         cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
     }
+
     cout << "..................................\n\n\n";
 
         for (int i = 0; i < numNodes; ++i) {
             // check if node is being served
             if (getEdge(i) != -1) {
+
+                if(getEdge(i) == getCellId(i))
+                    cout << "node " << i << " being served by tier 1\n";
+                else
+                    cout << "node " << i << "being served by tier 2\n";
                 // perform predictions to update prediction vector
 
                 int bestEdgeServer = -1;
@@ -455,8 +465,8 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
             if(t.destinationAddress == edgeNodesAddresses[i][0])
                 edgeId = i;
         // return if flow does not belong to edge
-        if (edgeId == -1)
-            return;
+        // if (edgeId == -1)
+        //     return;
 
         txPacketsum += iter->second.txPackets;
         rxPacketsum += iter->second.rxPackets;
@@ -816,7 +826,8 @@ int main(int argc, char* argv[])
     Ptr<FlowMonitor> monitor = flowmon.InstallAll();
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
 
-    getDelayFlowMon(monitor, classifier);
+    // getDelayFlowMon(monitor, classifier);
+    Simulator::Schedule(Seconds(1), &getDelayFlowMon, monitor, classifier);
 
     Simulator::Stop(simTime);
     Simulator::Run();
