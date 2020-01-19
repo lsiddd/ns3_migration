@@ -36,6 +36,8 @@
 // Used for cell allocation
 #include <math.h> // sin cos pow
 #include <limits> // limit of the int type
+#include <vector>
+#include "matriz.h"
 
 using namespace std;
 using namespace ns3;
@@ -59,9 +61,9 @@ int getCellId(int nodeId);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-const uint16_t numNodes = 20;
-const uint16_t numEnbs = 20;
-const uint16_t numEdgeNodes = numEnbs;
+uint16_t numNodes = 20;
+uint16_t numEnbs = 20;
+uint16_t numEdgeNodes = numEnbs;
 
 // mobility trace file
 string mobilityTrace = "mobil/rw.ns_movements";
@@ -93,11 +95,11 @@ unsigned int handNumber = 0; // number of handovers executed
 // more of the recources needed in this simulation
 // the resources are:
 // base OS (1), base OS + base application(2), or none of these (0)
-uint16_t resources[numEdgeNodes];
+vector<uint16_t> resources;
 int initialResources = 5;
 // units of processing used at the moment
-uint16_t serverLoad[numEdgeNodes];
-double qosValues[numEdgeNodes];
+vector<uint16_t> serverLoad;
+vector<double> qosValues;
 
 Time managerInterval = MilliSeconds(100);
 // size of the sevices to be migrated in bytes
@@ -111,23 +113,23 @@ bool randomCellAlloc = true;
 Time interPacketInterval = MilliSeconds(1);
 
 // control matrix
-int cellUe[numEnbs][numNodes] = { { 0 } };
+matriz<int> cellUe;
 
 // edge servers responsible for each node
-int edgeUe[numEdgeNodes][numNodes] = { { 0 } };
+matriz<int> edgeUe;
 
-int edgeMigrationChart[numEdgeNodes][numEdgeNodes] = { { 0 } };
+matriz<int> edgeMigrationChart;
 
 // IP addres of all fog nodes
 // the ith server has two addresses, the 7.0.0.X base to communicate with nodes
 // and the 22.0.0.X base for migrations
-Ipv4Address edgeNodesAddresses[numEdgeNodes][2];
+matriz<Ipv4Address> edgeNodesAddresses;
 
 // structure to store handover predictions
 // [0] -> time of the handover
 // [1] -> source cell
 // [2] -> target cell
-int handoverPredictions[numNodes][3];
+matriz<int> handoverPredictions;
 
 
 // function prototypes
@@ -624,6 +626,20 @@ int getCellId(int nodeId)
 int main(int argc, char* argv[])
 {
     int randomSeed = 5;
+    
+    // Command line arguments
+    CommandLine cmd;
+    cmd.AddValue ("algorithm", "algorithm", algorithm);
+    cmd.AddValue ("numEnbs", "Number of Enbs in the simulation", numEnbs);
+    cmd.AddValue ("numNodes", "number of Nodes in the simulation", numNodes);
+    cmd.AddValue ("randomSeed", "randomSeed", randomSeed);
+    cmd.AddValue ("verbose", "Tell echo applications to log if true", verbose);
+
+    ConfigStore inputConfig;
+    inputConfig.ConfigureDefaults();
+
+    cmd.Parse(argc, argv);
+    
     // logs enabled
     if (verbose) {
         LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
@@ -637,26 +653,24 @@ int main(int argc, char* argv[])
     // random seed
     RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
 
+	numEdgeNodes = numEnbs;
+    serverLoad.reserve(numEdgeNodes);
+    qosValues.reserve(numEdgeNodes);
+    cellUe.setDimensions(numEnbs, numNodes);
+    edgeUe.setDimensions(numEdgeNodes, numNodes);
+    edgeMigrationChart.setDimensions(numEdgeNodes, numEdgeNodes);
+    edgeNodesAddresses.setDimensions(numEdgeNodes,2);
+    handoverPredictions.setDimensions(numNodes,3);
+    
     // fill all edge nodes with 10 processing units
-    fill(resources, resources + numEdgeNodes, initialResources);
+    resources.assign(numEdgeNodes, initialResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
         resources[i] = rand() % initialResources + 5;
         cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
-
-    // Command line arguments
-    CommandLine cmd;
-    cmd.AddValue ("algorithm", "algorithm", algorithm);
-    cmd.AddValue ("randomSeed", "randomSeed", randomSeed);
-    cmd.AddValue ("verbose", "Tell echo applications to log if true", verbose);
-
-    ConfigStore inputConfig;
-    inputConfig.ConfigureDefaults();
-
-    cmd.Parse(argc, argv);
     
     srand(randomSeed);
-
+    
     // helpers used
     Ptr<LteHelper> lteHelper = CreateObject<LteHelper>();
     Ptr<EpcHelper> epcHelper;
