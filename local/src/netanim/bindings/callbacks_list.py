@@ -1,1 +1,0 @@
-/home/sid/hove/src/netanim/bindings/callbacks_list.py

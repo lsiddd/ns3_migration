@@ -1,1 +1,0 @@
-/home/sid/hove/src/internet/test/ipv6-dual-stack-test-suite.cc

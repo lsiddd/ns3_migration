@@ -280,7 +280,7 @@ LteUeRrc::GetTypeId (void)
     .AddTraceSource ("SCarrierConfigured",
                      "trace fired after configuring secondary carriers",
                      MakeTraceSourceAccessor (&LteUeRrc::m_sCarrierConfiguredTrace),
-                     "ns3::LteUeRrc::SCellConfiguredCallback")
+                     "ns3::LteUeRrc::SCarrierConfiguredTracedCallback")
   ;
   return tid;
 }
@@ -494,9 +494,9 @@ LteUeRrc::InitializeSap (void)
 {
   if (m_numberOfComponentCarriers < MIN_NO_CC || m_numberOfComponentCarriers > MAX_NO_CC)
     {
-      // this check is neede in order to maintain backward compatibility with scripts and tests
+      // this check is needed in order to maintain backward compatibility with scripts and tests
       // if case lte-helper is not used (like in several tests) the m_numberOfComponentCarriers
-      // is not set and then an error is rised
+      // is not set and then an error is raised
       // In this case m_numberOfComponentCarriers is set to 1
       m_numberOfComponentCarriers = MIN_NO_CC;
     }
@@ -2761,8 +2761,6 @@ LteUeRrc::SendMeasurementReport (uint8_t measId)
   LteRrcSap::MeasurementReport measurementReport;
   LteRrcSap::MeasResults& measResults = measurementReport.measResults;
   measResults.measId = measId;
-   measResults.servingCellId = m_cellId;
-
 
   std::map<uint16_t, MeasValues>::iterator servingMeasIt = m_storedMeasValues.find (m_cellId);
   NS_ASSERT (servingMeasIt != m_storedMeasValues.end ());

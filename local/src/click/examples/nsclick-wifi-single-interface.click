@@ -1,1 +1,0 @@
-/home/sid/hove/src/click/examples/nsclick-wifi-single-interface.click

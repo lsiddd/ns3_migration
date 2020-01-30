@@ -80,13 +80,13 @@ public:
    *  be a multiple of 8
    */
   void SetPacketWindowSize (uint16_t size);
-  virtual void StopApplication (void);
 protected:
   virtual void DoDispose (void);
 
 private:
 
   virtual void StartApplication (void);
+  virtual void StopApplication (void);
 
   /**
    * \brief Handle a packet reception.

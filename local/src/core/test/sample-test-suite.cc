@@ -1,1 +1,0 @@
-/home/sid/hove/src/core/test/sample-test-suite.cc

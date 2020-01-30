@@ -1,1 +1,0 @@
-/home/sid/hove/src/click/examples/nsclick-udp-client-server-csma.cc

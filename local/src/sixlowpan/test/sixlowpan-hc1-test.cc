@@ -1,1 +1,0 @@
-/home/sid/hove/src/sixlowpan/test/sixlowpan-hc1-test.cc

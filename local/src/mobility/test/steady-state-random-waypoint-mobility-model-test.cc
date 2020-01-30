@@ -1,1 +1,0 @@
-/home/sid/hove/src/mobility/test/steady-state-random-waypoint-mobility-model-test.cc

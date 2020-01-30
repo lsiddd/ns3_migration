@@ -1,1 +1,0 @@
-/home/sid/hove/src/buildings/test/buildings-shadowing-test.cc

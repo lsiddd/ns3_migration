@@ -1,1 +1,0 @@
-/home/sid/hove/src/spectrum/examples/tv-trans-regional-example.cc

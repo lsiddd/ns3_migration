@@ -1,1 +1,0 @@
-/home/sid/hove/sourceTraces/st_highway_cif.st

@@ -1,1 +1,0 @@
-/home/sid/hove/src/spectrum/model/multi-model-spectrum-channel.h

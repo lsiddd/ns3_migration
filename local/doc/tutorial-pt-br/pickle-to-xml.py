@@ -1,1 +1,0 @@
-/home/sid/hove/doc/tutorial-pt-br/pickle-to-xml.py

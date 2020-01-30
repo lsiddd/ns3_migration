@@ -1,1 +1,0 @@
-/home/sid/hove/src/core/examples/main-ptr.cc

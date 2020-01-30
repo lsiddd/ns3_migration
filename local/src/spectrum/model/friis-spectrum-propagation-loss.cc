@@ -1,1 +1,0 @@
-/home/sid/hove/src/spectrum/model/friis-spectrum-propagation-loss.cc

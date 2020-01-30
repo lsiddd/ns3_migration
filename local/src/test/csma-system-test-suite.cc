@@ -1,1 +1,0 @@
-/home/sid/hove/src/test/csma-system-test-suite.cc

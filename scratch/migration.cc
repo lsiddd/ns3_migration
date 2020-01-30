@@ -35,7 +35,7 @@
 #include <sys/stat.h> // file permissions
 // Used for cell allocation
 #include <math.h> // sin cos pow
-#include <limits> // limit of the int type
+#include <limits> // limit of the int type 
 #include <vector>
 #include "matriz.h"
 
@@ -45,14 +45,14 @@ using namespace ns3;
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
 /*
 Algoprithms to be supported:
-    MSMF
+    MOSAIC
     greedy
     nomigration
     predictive
     QoS
 */
 
-string algorithm = "MSMF";
+string algorithm = "MOSAIC";
 
 // function prototipes
 void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
@@ -61,9 +61,10 @@ int getCellId(int nodeId);
 // pi
 float PI = 3.14159265; // pi
 // scenario variables
-uint16_t numNodes = 20;
-uint16_t numEnbs = 20;
+uint16_t numNodes = 10;
+uint16_t numEnbs = 31;
 uint16_t numEdgeNodes = numEnbs;
+uint16_t numFogNodes = 4;
 
 // mobility trace file
 string mobilityTrace = "mobil/rw.ns_movements";
@@ -75,6 +76,7 @@ Time simTime = Seconds(40);
 NodeContainer ueNodes;
 NodeContainer edgeNodes;
 NodeContainer enbNodes;
+NodeContainer fogNodes;
 
 // ApplicationContariners
 ApplicationContainer apps;
@@ -107,10 +109,10 @@ uint64_t migrationSize = 2000000000;
 
 // type of cell position allocation
 bool rowTopology = false;
-bool randomCellAlloc = true;
+bool randomCellAlloc = false;
 
 // data rate
-Time interPacketInterval = MilliSeconds(1);
+Time interPacketInterval = MilliSeconds(5);
 
 // control matrix
 matriz<int> cellUe;
@@ -327,7 +329,7 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
 
     cout << "allocationg cells positions\n";
     int x, y;
-    int distance = 1000;
+    int distance = 20;
     ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
 
     if (randomCellAlloc) {
@@ -351,9 +353,10 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     }
     else {
         cout << "hex alloc\n";
-        int x_start = 1000;
-        int y_start = 1000;
+        int x_start = 100;
+        int y_start = 100;
 
+        // add a cell in the center of the scenario
         HpnPosition->Add(Vector(x_start, y_start, 25));
 
         for (double i = 0; i < 2 * PI; i += PI / 3) {
@@ -404,7 +407,6 @@ void manager()
                         double qosvalue = 0;
                         double score = 0;
                         // target cell of the handover
-                        int handoverTo = handoverPredictions[i][2];
 
                         if (edgeId == getEdge(i))
                             qosvalue = qosValues[edgeId] / 2;
@@ -412,7 +414,7 @@ void manager()
                             qosvalue = qosValues[edgeId];
                         score = 0.48 / qosvalue;
 
-                        if (resources[edgeId] == 0 && algorithm == "MSMF")
+                        if (resources[edgeId] == 0 && algorithm == "MOSAIC")
                             score = 0;
 
                         if (score > greatestScore) {
@@ -651,8 +653,11 @@ int main(int argc, char* argv[])
     LogComponentEnable("Ns3Migration", LOG_LEVEL_ALL);
 
     // random seed
-    RngSeedManager::SetSeed(3); // Changes seed from default of 1 to 3
+    RngSeedManager::SetSeed(randomSeed); // Changes seed from default of 1 to 3
+    srand(randomSeed);
 
+
+    // set dimentions on the matrixes
 	numEdgeNodes = numEnbs;
     serverLoad.reserve(numEdgeNodes);
     qosValues.reserve(numEdgeNodes);
@@ -662,14 +667,13 @@ int main(int argc, char* argv[])
     edgeNodesAddresses.setDimensions(numEdgeNodes,2);
     handoverPredictions.setDimensions(numNodes,3);
     
-    // fill all edge nodes with 10 processing units
+    // fill all edge nodes with a different number of processing units
     resources.assign(numEdgeNodes, initialResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
         resources[i] = rand() % initialResources + 5;
         cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
     
-    srand(randomSeed);
     
     // helpers used
     Ptr<LteHelper> lteHelper = CreateObject<LteHelper>();
@@ -712,17 +716,12 @@ int main(int argc, char* argv[])
     lteHelper->SetHandoverAlgorithmAttribute("Hysteresis",
         DoubleValue(0));
     lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
-        TimeValue(MilliSeconds(0)));
+        TimeValue(MilliSeconds(30)));
 
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
     // create internet stack
     InternetStackHelper internet;
-
-    // create users, enbs and fog nodes
-    // NodeContainer ueNodes;
-    // NodeContainer enbNodes;
-    // NodeContainer edgeNodes;
 
     enbNodes.Create(numEnbs);
     ueNodes.Create(numNodes);
@@ -768,7 +767,6 @@ int main(int argc, char* argv[])
     mobilityEnb.SetPositionAllocator(HpnPosition);
     mobilityEnb.Install(enbNodes);
 
-    // Ns2MobilityHelper ue_mobil = Ns2MobilityHelper("mobil/SanFrancisco.tcl");
     Ns2MobilityHelper ue_mobil = Ns2MobilityHelper(mobilityTrace);
     MobilityHelper ueMobility;
     MobilityHelper enbMobility;

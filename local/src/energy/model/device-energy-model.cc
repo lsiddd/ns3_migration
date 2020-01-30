@@ -1,1 +1,0 @@
-/home/sid/hove/src/energy/model/device-energy-model.cc

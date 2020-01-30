@@ -1,1 +1,0 @@
-/home/sid/hove/examples/wireless/rate-adaptation-distance.cc

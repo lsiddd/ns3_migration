@@ -206,10 +206,6 @@ UdpClient::Send (void)
     {
       m_sendEvent = Simulator::Schedule (m_interval, &UdpClient::Send, this);
     }
-  else {
-    std::cout << "UDPClient transfer to "  << peerAddressStringStream.str () <<
-     " finished at " << Simulator::Now().GetSeconds() << ".\n";
-  }
 }
 
 } // Namespace ns3

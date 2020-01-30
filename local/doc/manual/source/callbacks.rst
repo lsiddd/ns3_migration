@@ -1,1 +1,0 @@
-/home/sid/hove/doc/manual/source/callbacks.rst

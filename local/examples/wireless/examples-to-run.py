@@ -1,1 +1,0 @@
-/home/sid/hove/examples/wireless/examples-to-run.py

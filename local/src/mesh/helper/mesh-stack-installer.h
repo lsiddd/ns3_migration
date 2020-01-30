@@ -1,1 +1,0 @@
-/home/sid/hove/src/mesh/helper/mesh-stack-installer.h

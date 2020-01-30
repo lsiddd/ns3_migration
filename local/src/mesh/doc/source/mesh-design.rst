@@ -1,1 +1,0 @@
-/home/sid/hove/src/mesh/doc/source/mesh-design.rst

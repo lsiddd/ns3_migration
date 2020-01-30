@@ -1,1 +1,0 @@
-/home/sid/hove/mobil/3gppMobility.tcl

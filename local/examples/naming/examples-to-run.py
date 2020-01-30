@@ -1,1 +1,0 @@
-/home/sid/hove/examples/naming/examples-to-run.py

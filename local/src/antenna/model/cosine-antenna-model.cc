@@ -1,1 +1,0 @@
-/home/sid/hove/src/antenna/model/cosine-antenna-model.cc

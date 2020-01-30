@@ -1,1 +1,0 @@
-/home/sid/hove/src/wimax/doc/wimax.rst

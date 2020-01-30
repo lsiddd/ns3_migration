@@ -1,1 +1,0 @@
-/home/sid/hove/src/olsr/test/bug780-test.h

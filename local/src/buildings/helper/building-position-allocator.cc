@@ -1,1 +1,0 @@
-/home/sid/hove/src/buildings/helper/building-position-allocator.cc

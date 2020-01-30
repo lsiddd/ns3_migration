@@ -1,1 +1,0 @@
-/home/sid/hove/examples/tutorial/third.py

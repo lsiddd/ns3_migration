@@ -1,1 +1,0 @@
-/home/sid/hove/src/core/test/ptr-test-suite.cc

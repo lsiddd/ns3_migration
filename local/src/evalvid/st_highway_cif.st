@@ -1,1 +1,0 @@
-/home/sid/hove/src/evalvid/st_highway_cif.st

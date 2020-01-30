@@ -1,1 +1,0 @@
-/home/sid/hove/src/uan/examples/uan-raw-example.cc

@@ -1,1 +1,0 @@
-/home/sid/hove/src/stats/doc/adaptor.rst

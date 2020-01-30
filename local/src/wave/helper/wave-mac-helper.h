@@ -1,1 +1,0 @@
-/home/sid/hove/src/wave/helper/wave-mac-helper.h

@@ -1,1 +1,0 @@
-/home/sid/hove/src/core/helper/event-garbage-collector.h

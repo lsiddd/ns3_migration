@@ -1,1 +1,0 @@
-/home/sid/hove/src/brite/examples/brite-MPI-example.cc

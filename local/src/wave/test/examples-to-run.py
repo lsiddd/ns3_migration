@@ -1,1 +1,0 @@
-/home/sid/hove/src/wave/test/examples-to-run.py

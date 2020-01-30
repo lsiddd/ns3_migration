@@ -1,1 +1,0 @@
-/home/sid/hove/src/olsr/examples/simple-point-to-point-olsr.cc

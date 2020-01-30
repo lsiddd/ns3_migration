@@ -1,1 +1,0 @@
-/home/sid/hove/src/wave/examples/wave-simple-device.cc

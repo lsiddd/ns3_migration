@@ -1,1 +1,0 @@
-/home/sid/hove/src/bridge/helper/bridge-helper.cc

@@ -1,1 +1,0 @@
-/home/sid/hove/utils/coverity-report.sh

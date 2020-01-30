@@ -1,1 +1,0 @@
-/home/sid/hove/src/internet/test/ipv4-static-routing-test-suite.cc

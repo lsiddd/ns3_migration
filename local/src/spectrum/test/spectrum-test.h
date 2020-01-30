@@ -1,1 +1,0 @@
-/home/sid/hove/src/spectrum/test/spectrum-test.h

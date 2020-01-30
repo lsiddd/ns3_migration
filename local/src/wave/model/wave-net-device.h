@@ -1,1 +1,0 @@
-/home/sid/hove/src/wave/model/wave-net-device.h

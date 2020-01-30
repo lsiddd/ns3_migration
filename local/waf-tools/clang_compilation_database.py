@@ -1,1 +1,0 @@
-/home/sid/hove/waf-tools/clang_compilation_database.py

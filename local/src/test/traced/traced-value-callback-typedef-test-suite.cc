@@ -1,1 +1,0 @@
-/home/sid/hove/src/test/traced/traced-value-callback-typedef-test-suite.cc

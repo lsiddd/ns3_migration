@@ -64,7 +64,6 @@ public:
    * \param addr remote address
    */
   void SetRemote (Address addr);
-  virtual void StopApplication (void);
 
 protected:
   virtual void DoDispose (void);
@@ -72,6 +71,7 @@ protected:
 private:
 
   virtual void StartApplication (void);
+  virtual void StopApplication (void);
 
   /**
    * \brief Send a packet

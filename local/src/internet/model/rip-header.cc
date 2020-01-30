@@ -1,1 +1,0 @@
-/home/sid/hove/src/internet/model/rip-header.cc

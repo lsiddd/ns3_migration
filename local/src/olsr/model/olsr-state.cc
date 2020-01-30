@@ -1,1 +1,0 @@
-/home/sid/hove/src/olsr/model/olsr-state.cc

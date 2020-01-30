@@ -1,1 +1,0 @@
-/home/sid/hove/src/core/test/attribute-test-suite.cc

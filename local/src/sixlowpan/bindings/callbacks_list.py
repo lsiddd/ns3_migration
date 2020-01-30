@@ -1,1 +1,0 @@
-/home/sid/hove/src/sixlowpan/bindings/callbacks_list.py

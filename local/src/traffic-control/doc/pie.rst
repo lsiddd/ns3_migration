@@ -1,1 +1,0 @@
-/home/sid/hove/src/traffic-control/doc/pie.rst

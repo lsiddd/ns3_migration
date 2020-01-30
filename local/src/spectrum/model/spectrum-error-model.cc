@@ -1,1 +1,0 @@
-/home/sid/hove/src/spectrum/model/spectrum-error-model.cc

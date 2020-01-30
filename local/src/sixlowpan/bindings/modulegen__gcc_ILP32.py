@@ -1,1 +1,0 @@
-/home/sid/hove/src/sixlowpan/bindings/modulegen__gcc_ILP32.py

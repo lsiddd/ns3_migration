@@ -1,1 +1,0 @@
-/home/sid/hove/examples/wireless/wifi-simple-adhoc-grid.cc

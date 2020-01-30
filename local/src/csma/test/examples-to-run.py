@@ -1,1 +1,0 @@
-/home/sid/hove/src/csma/test/examples-to-run.py

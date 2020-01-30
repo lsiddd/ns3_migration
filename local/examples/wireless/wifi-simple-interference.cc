@@ -1,1 +1,0 @@
-/home/sid/hove/examples/wireless/wifi-simple-interference.cc

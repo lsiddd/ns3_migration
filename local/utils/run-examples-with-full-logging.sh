@@ -1,1 +1,0 @@
-/home/sid/hove/utils/run-examples-with-full-logging.sh

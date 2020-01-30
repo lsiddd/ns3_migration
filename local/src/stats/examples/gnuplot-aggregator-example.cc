@@ -1,1 +1,0 @@
-/home/sid/hove/src/stats/examples/gnuplot-aggregator-example.cc

@@ -1,1 +1,0 @@
-/home/sid/hove/src/sixlowpan/examples/example-ping-lr-wpan.cc

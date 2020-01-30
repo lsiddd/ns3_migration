@@ -1,1 +1,0 @@
-/home/sid/hove/src/wifi/model/supported-rates.cc

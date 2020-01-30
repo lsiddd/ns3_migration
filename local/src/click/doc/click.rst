@@ -1,1 +1,0 @@
-/home/sid/hove/src/click/doc/click.rst

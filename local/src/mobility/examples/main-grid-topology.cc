@@ -1,1 +1,0 @@
-/home/sid/hove/src/mobility/examples/main-grid-topology.cc

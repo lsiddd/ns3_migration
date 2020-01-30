@@ -1,1 +1,0 @@
-/home/sid/hove/src/olsr/test/olsr-routing-protocol-test-suite.cc

@@ -1,1 +1,0 @@
-/home/sid/hove/src/internet/doc/ipv6.rst

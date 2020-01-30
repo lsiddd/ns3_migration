@@ -1,1 +1,0 @@
-/home/sid/hove/doc/tutorial-pt-br/locale/language/LC_MESSAGES/sphinx.mo

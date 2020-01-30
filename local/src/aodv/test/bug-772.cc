@@ -1,1 +1,0 @@
-/home/sid/hove/src/aodv/test/bug-772.cc

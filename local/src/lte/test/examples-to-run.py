@@ -1,1 +1,0 @@
-/home/sid/hove/src/lte/test/examples-to-run.py

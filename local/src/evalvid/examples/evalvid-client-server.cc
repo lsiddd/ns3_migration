@@ -1,1 +1,0 @@
-/home/sid/hove/src/evalvid/examples/evalvid-client-server.cc

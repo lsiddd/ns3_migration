@@ -1,1 +1,0 @@
-/home/sid/hove/src/netanim/examples/dumbbell-animation.cc

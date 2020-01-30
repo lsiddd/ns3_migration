@@ -1,1 +1,0 @@
-/home/sid/hove/src/fd-net-device/examples/fd-emu-ping.cc

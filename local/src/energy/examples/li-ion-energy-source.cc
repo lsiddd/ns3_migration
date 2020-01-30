@@ -1,1 +1,0 @@
-/home/sid/hove/src/energy/examples/li-ion-energy-source.cc

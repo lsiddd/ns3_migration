@@ -1,1 +1,0 @@
-/home/sid/hove/scratch/subdir/scratch-simulator-subdir.cc

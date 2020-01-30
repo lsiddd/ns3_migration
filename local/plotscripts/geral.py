@@ -1,1 +1,0 @@
-/home/sid/hove/plotscripts/geral.py

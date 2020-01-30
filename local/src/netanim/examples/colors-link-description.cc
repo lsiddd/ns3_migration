@@ -1,1 +1,0 @@
-/home/sid/hove/src/netanim/examples/colors-link-description.cc
