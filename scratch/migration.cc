@@ -44,12 +44,8 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
 /*
-Algoprithms to be supported:
-    MOSAIC
-    greedy
-    nomigration
-    predictive
-    QoS
+TODO: * rewrite entire manager :c
+      * integrate fog nodes into migration decision
 */
 
 string algorithm = "MOSAIC";
@@ -62,9 +58,9 @@ int getCellId(int nodeId);
 float PI = 3.14159265; // pi
 // scenario variables
 uint16_t numNodes = 10;
-uint16_t numEnbs = 31;
+uint16_t numEnbs = 35;
 uint16_t numEdgeNodes = numEnbs;
-uint16_t numFogNodes = 4;
+uint16_t numFogNodes = 7;
 
 // mobility trace file
 string mobilityTrace = "mobil/rw.ns_movements";
@@ -77,6 +73,7 @@ NodeContainer ueNodes;
 NodeContainer edgeNodes;
 NodeContainer enbNodes;
 NodeContainer fogNodes;
+NodeContainer serverNodes;
 
 // ApplicationContariners
 ApplicationContainer apps;
@@ -93,19 +90,27 @@ bool doMigrate = true;
 
 unsigned int handNumber = 0; // number of handovers executed
 
+
+//-----VARIABLES THAT DEPEND ON THE NUMBER OF SERVERS----
 // The resources variable tells which server has one or
 // more of the recources needed in this simulation
 // the resources are:
-// base OS (1), base OS + base application(2), or none of these (0)
 vector<uint16_t> resources;
-int initialResources = 5;
+int initialEdgeResources = 5;
+int initialFogResources = 10;
+
 // units of processing used at the moment
 vector<uint16_t> serverLoad;
 vector<double> qosValues;
 
+// IP addres of all fog nodes
+// the ith server has two addresses, the 7.0.0.X base to communicate with nodes
+// and the 22.0.0.X base for migrations
+matriz<Ipv4Address> edgeNodesAddresses;
+
 Time managerInterval = MilliSeconds(100);
 // size of the sevices to be migrated in bytes
-uint64_t migrationSize = 2000000000;
+uint64_t migrationSize = 10000000;
 
 // type of cell position allocation
 bool rowTopology = false;
@@ -121,11 +126,6 @@ matriz<int> cellUe;
 matriz<int> edgeUe;
 
 matriz<int> edgeMigrationChart;
-
-// IP addres of all fog nodes
-// the ith server has two addresses, the 7.0.0.X base to communicate with nodes
-// and the 22.0.0.X base for migrations
-matriz<Ipv4Address> edgeNodesAddresses;
 
 // structure to store handover predictions
 // [0] -> time of the handover
@@ -329,7 +329,8 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
 
     cout << "allocationg cells positions\n";
     int x, y;
-    int distance = 20;
+    int distance = 100;
+    int smallCellRadius = 20;
     ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
 
     if (randomCellAlloc) {
@@ -364,10 +365,10 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
         }
 
         for (double i = 0; i < 2 * PI; i += PI / 3) {
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 + 10, y_start + distance * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 + 10, y_start + distance * sin(i) - rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + distance * cos(i) + rand() % 100 - 10, y_start + distance * sin(i) - rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) - rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 - 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
+            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 - 10, y_start + smallCellRadius * sin(i) - rand() % 100 + 10, 10));
         }
         return HpnPosition;
     }
@@ -659,21 +660,25 @@ int main(int argc, char* argv[])
 
     // set dimentions on the matrixes
 	numEdgeNodes = numEnbs;
-    serverLoad.reserve(numEdgeNodes);
-    qosValues.reserve(numEdgeNodes);
+    serverLoad.reserve(numEdgeNodes + numFogNodes);
+    qosValues.reserve(numEdgeNodes + numFogNodes);
     cellUe.setDimensions(numEnbs, numNodes);
-    edgeUe.setDimensions(numEdgeNodes, numNodes);
+    edgeUe.setDimensions(numEdgeNodes + numFogNodes, numNodes);
     edgeMigrationChart.setDimensions(numEdgeNodes, numEdgeNodes);
-    edgeNodesAddresses.setDimensions(numEdgeNodes,2);
+    edgeNodesAddresses.setDimensions(numEdgeNodes + numFogNodes,2);
     handoverPredictions.setDimensions(numNodes,3);
     
     // fill all edge nodes with a different number of processing units
-    resources.assign(numEdgeNodes, initialResources);
+    resources.assign(numEdgeNodes + numFogNodes, initialEdgeResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
-        resources[i] = rand() % initialResources + 5;
+        resources[i] = rand() % initialEdgeResources + 5;
         cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
-    
+
+    for (int i = 0; i < numFogNodes; ++i) {
+        resources[numEdgeNodes + i] = rand() % initialFogResources + 5;
+        cout << "Fog server " << i << " initialized with " << resources[i] << " resources" << endl;
+    }
     
     // helpers used
     Ptr<LteHelper> lteHelper = CreateObject<LteHelper>();
@@ -726,15 +731,26 @@ int main(int argc, char* argv[])
     enbNodes.Create(numEnbs);
     ueNodes.Create(numNodes);
     edgeNodes.Create(numEdgeNodes);
+    fogNodes.Create(numFogNodes);
+
+    // add edge and fog nodes to same container
+    serverNodes.Add(edgeNodes);
+    serverNodes.Add(fogNodes);
 
     /* edge nodes configuration*/
     internet.Install(edgeNodes);
+    internet.Install(fogNodes);
     Ipv4AddressHelper ipv4h;
     ipv4h.SetBase("1.0.0.0", "255.0.0.0");
 
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
-    for (int i = 0; i < numEdgeNodes; ++i) {
+    for (int i = 0; i < numEdgeNodes + numFogNodes; ++i) {
         // create all edge nodes with different delays, some of them unfit fot the application
+        Ptr<Node> node;
+        if (i < numEdgeNodes)
+            node = edgeNodes.Get(i);
+        else
+            node = fogNodes.Get(i - numEdgeNodes);
 
         // Create the Internet
         PointToPointHelper p2ph;
@@ -742,30 +758,32 @@ int main(int argc, char* argv[])
         p2ph.SetDeviceAttribute("Mtu", UintegerValue(1500));
         // random link delay
         p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(rand() % 40)));
-        NetDeviceContainer internetDevices = p2ph.Install(pgw, edgeNodes.Get(i));
+        NetDeviceContainer internetDevices = p2ph.Install(pgw, node);
         Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
         // interface 0 is localhost, 1 is the p2p device
         edgeNodesAddresses[i][0] = internetIpIfaces.GetAddress(1);
 
         // add network routes to fog nodes
-        Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(edgeNodes.Get(i)->GetObject<Ipv4>());
+        Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
         remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
         // p2ph.EnablePcapAll("lena-simple-epc-backhaul");
     }
 
-    /*-----------------POSIÇÃO DAS TORRES----------------------------------*/
-    Ptr<ListPositionAllocator> HpnPosition = CreateObject<ListPositionAllocator>();
-    HpnPosition = positionAllocator(HpnPosition);
-
+    // --- mobility settings ----
     MobilityHelper remoteHostMobility;
     remoteHostMobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-    remoteHostMobility.Install(edgeNodes);
+    remoteHostMobility.Install(fogNodes);
     remoteHostMobility.Install(pgw);
+
+    // enb positioning
+    Ptr<ListPositionAllocator> HpnPosition = CreateObject<ListPositionAllocator>();
+    HpnPosition = positionAllocator(HpnPosition);
 
     MobilityHelper mobilityEnb;
     mobilityEnb.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mobilityEnb.SetPositionAllocator(HpnPosition);
     mobilityEnb.Install(enbNodes);
+    mobilityEnb.Install(edgeNodes);
 
     Ns2MobilityHelper ue_mobil = Ns2MobilityHelper(mobilityTrace);
     MobilityHelper ueMobility;
@@ -784,15 +802,15 @@ int main(int argc, char* argv[])
     s1uIpv4AddressHelper.SetBase("10.0.0.0", "255.255.255.0");
     edgeIpv4AddressHelper.SetBase("22.0.0.0", "255.255.255.0");
 
+    // backhaul channel
     CsmaHelper csma;
     csma.SetChannelAttribute("DataRate", StringValue("100Gbps"));
     csma.SetChannelAttribute("Delay", StringValue("0ms"));
-    NetDeviceContainer d2345 = csma.Install(edgeNodes);
-    Ipv4InterfaceContainer edgeIpIfaces = edgeIpv4AddressHelper.Assign(d2345);
-    for (uint32_t i = 0; i < edgeIpIfaces.GetN(); ++i) {
-        edgeNodesAddresses[i][1] = edgeIpIfaces.GetAddress(i);
+    NetDeviceContainer backhaulCsma = csma.Install(serverNodes);
+    Ipv4InterfaceContainer serversIpIfaces = edgeIpv4AddressHelper.Assign(backhaulCsma);
+    for (uint32_t i = 0; i < serversIpIfaces.GetN(); ++i) {
+        edgeNodesAddresses[i][1] = serversIpIfaces.GetAddress(i);
     }
-    NS_LOG_UNCOND(edgeIpIfaces.GetAddress(0));
 
     // Install the IP stack on the UEs
     internet.Install(ueNodes);
@@ -824,6 +842,20 @@ int main(int argc, char* argv[])
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
+
+    // optional
+    for (uint32_t i = 0; i < enbNodes.GetN(); ++i) {
+        anim.UpdateNodeDescription(enbNodes.Get(i), "eNb");
+        anim.UpdateNodeColor(enbNodes.Get(i), 0, 255, 0);
+    }
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+        anim.UpdateNodeDescription(ueNodes.Get(i), "UE");
+        anim.UpdateNodeColor(ueNodes.Get(i), 255, 0, 0);
+    }
+    for (uint32_t i = 0; i < serverNodes.GetN(); ++i) {
+        anim.UpdateNodeDescription(serverNodes.Get(i), "server");
+        anim.UpdateNodeColor(serverNodes.Get(i), 0, 255, 100);
+    }
 
     // callbacks from handover events
     Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/ConnectionEstablished",
