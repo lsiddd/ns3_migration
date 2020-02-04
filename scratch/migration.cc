@@ -35,7 +35,7 @@
 #include <sys/stat.h> // file permissions
 // Used for cell allocation
 #include <math.h> // sin cos pow
-#include <limits> // limit of the int type 
+#include <limits> // limit of the int type
 #include <vector>
 #include "matriz.h"
 
@@ -90,7 +90,6 @@ bool doMigrate = true;
 
 unsigned int handNumber = 0; // number of handovers executed
 
-
 //-----VARIABLES THAT DEPEND ON THE NUMBER OF SERVERS----
 // The resources variable tells which server has one or
 // more of the recources needed in this simulation
@@ -133,15 +132,12 @@ matriz<int> edgeMigrationChart;
 // [2] -> target cell
 matriz<int> handoverPredictions;
 
-
 // function prototypes
 int getEdge(int nodeId);
 double qosProbe();
 void HandoverPrediction(int nodeId, int timeWindow);
-int getCellId(int imsi);
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address);
-
 
 void HandoverPrediction(int nodeId, int timeWindow)
 {
@@ -197,11 +193,10 @@ void HandoverPrediction(int nodeId, int timeWindow)
                         closestCell = i;
                         shortestDistance = distanceUeEnb;
                     }
-
                 }
 
                 // if closest enb != current, predict handover
-                if (closestCell != getCellId(nodeId)){
+                if (closestCell != getCellId(nodeId)) {
                     cout << "Handover to happen at " << node_position_time << endl;
                     cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
                     handoverPredictions[nodeId][0] = node_position_time;
@@ -232,20 +227,25 @@ void NotifyConnectionEstablishedUe(string context,
     outfile << imsi << endl;
     outfile.close();
 
+    /*
+    TRY TO CONNECT TO THE EDGE SERVER IN THE BEGGINING OF THE SIMULATION,
+    IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
+    */
+    // resources[cellid - 1] => IS THE POSITION OF THE CELL'S EDGE
     if (resources[cellid - 1] == 0) {
-        int realEdge;
+        int fallbackFog;
         // iterate untill an edge with available resources has been chosen
         do {
-            realEdge = rand() % numEdgeNodes;
+            fallbackFog = rand() % numFogNodes + numEdgeNodes;
             // make while condition true to reiterate
-            if (resources[realEdge] == 0)
-                realEdge = cellid - 1;
-        } while (realEdge == cellid - 1);
+            if (resources[fallbackFog] == 0)
+                fallbackFog = cellid - 1;
+        } while (fallbackFog == cellid - 1);
 
         cout << "Failed to allocate user" << imsi << " in edge " << cellid - 1 << "\n";
-        cout << "allocating to random edge " << realEdge << endl;
-        resources[realEdge]--;
-        edgeUe[realEdge][imsi - 1] = 1;
+        cout << "allocating to random fog " << fallbackFog << endl;
+        resources[fallbackFog]--;
+        edgeUe[fallbackFog][imsi - 1] = 1;
     }
     else {
         cout << "User " << imsi << " connected to edge " << cellid - 1 << endl;
@@ -374,10 +374,13 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     }
 }
 
-
 // migrations manager
 void manager()
 {
+    double weights[4] = {0.5, 0.25, 0.125, 0.125};
+
+    Simulator::Schedule(managerInterval, &manager);
+
     cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
 
     for (int i = 0; i < numEdgeNodes; ++i) {
@@ -386,61 +389,85 @@ void manager()
 
     cout << "..................................\n\n\n";
 
-        for (int i = 0; i < numNodes; ++i) {
-            // check if node is being served
-            if (getEdge(i) != -1) {
 
-                if(getEdge(i) == getCellId(i))
-                    cout << "node " << i << " being served by tier 1\n";
-                else
-                    cout << "node " << i << "being served by tier 2\n";
-                // perform predictions to update prediction vector
+    for (int i = 0; i < numNodes; ++i) {
+        // check if node is being served
+        if (getEdge(i) != -1) {
 
-                int bestEdgeServer = -1;
-                int greatestScore = -1;
-                int edgeId = 0;
+            if (getEdge(i) == getCellId(i))
+                cout << "node " << i << " being served by tier 1\n";
+            else
+                cout << "node " << i << " being served by fog\n";
+            // perform predictions to update prediction vector
 
-                HandoverPrediction(i, 5);
+            if (algorithm == "nomigration" || algorithm == "greedy")
+                return;
 
-                if (Seconds(handoverPredictions[i][0]) > Simulator::Now()) {
-                    // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
-                    while (edgeId < numEdgeNodes) {
-                        double qosvalue = 0;
-                        double score = 0;
-                        // target cell of the handover
+            int bestEdgeServer = -1;
+            int greatestScore = -1;
+            int edgeId = 0;
 
-                        if (edgeId == getEdge(i))
-                            qosvalue = qosValues[edgeId] / 2;
-                        else
-                            qosvalue = qosValues[edgeId];
-                        score = 0.48 / qosvalue;
+            // I will just assume that the predictions are right
+            HandoverPrediction(i, 5);
 
-                        if (resources[edgeId] == 0 && algorithm == "MOSAIC")
-                            score = 0;
+            // if a handover is going to happen
+            if (Seconds(handoverPredictions[i][0]) > Simulator::Now()) {
+                // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
+                while ( (uint32_t) edgeId < serverNodes.GetN()) {
+                    double qosvalue = 0;
+                    double distanceValue = 0;
 
-                        if (score > greatestScore) {
-                            greatestScore = score;
-                            bestEdgeServer = edgeId;
-                        }
-                        edgeId++;
+                    double score = 0;
+                    // target cell of the handover
+
+                    // add the distance metric (1 for edge, 0.5 for fog)
+                    if(edgeId > numEdgeNodes - 1)
+                        distanceValue = 0.5;
+                    else
+                        distanceValue = 1;
+
+                    // add weighted distance
+                    score += weights[0] * distanceValue;
+
+                    //add weighted resources
+                    score += weights[1] * resources[edgeId];
+
+                    // decrease latency if user is in edge server
+                    if (edgeId == getEdge(i))
+                        qosvalue += 1 / (qosValues[edgeId] / 2);
+                    else
+                        qosvalue += 1 / (qosValues[edgeId]);
+                    score = weights[2] * qosvalue;
+
+
+                    if (resources[edgeId] == 0)
+                        score = 0;
+
+                    if (score > greatestScore) {
+                        greatestScore = score;
+                        bestEdgeServer = edgeId;
                     }
-                    if (bestEdgeServer != getEdge(i) && algorithm != "nomigration" && algorithm != "greedy") {
-                        if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds())
-                            return;
-                        else {
-                            migrate(edgeNodes.Get(getEdge(i)), edgeNodes.Get(bestEdgeServer), 
-                                    edgeNodesAddresses[getEdge(i)][1], edgeNodesAddresses[bestEdgeServer][1]);
-                            edgeMigrationChart[i][bestEdgeServer] = Simulator::Now().GetSeconds();
-                        }
+                    edgeId++;
+                }
+                if (bestEdgeServer != getEdge(i)) {
+                    if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds())
+                        return;
+                    else {
+                        migrate(edgeNodes.Get(getEdge(i)), edgeNodes.Get(bestEdgeServer),
+                            edgeNodesAddresses[getEdge(i)][1], edgeNodesAddresses[bestEdgeServer][1]);
+                        edgeMigrationChart[i][bestEdgeServer] = Simulator::Now().GetSeconds();
                     }
                 }
-
-                // renew applications periodically
-                requestApplication(ueNodes.Get(i), edgeNodes.Get(getEdge(i)), edgeNodesAddresses[getEdge(i)][0]);
             }
+
+            // renew applications periodically
+            requestApplication(ueNodes.Get(i), edgeNodes.Get(getEdge(i)), edgeNodesAddresses[getEdge(i)][0]);
         }
 
-    Simulator::Schedule(managerInterval, &manager);
+        else
+            throw "getedge failed";
+    }
+
 }
 
 void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifier)
@@ -461,13 +488,12 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
     // iterate all flows
     for (map<FlowId, FlowMonitor::FlowStats>::const_iterator iter = stats.begin(); iter != stats.end(); ++iter) {
 
-
-        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (iter->first);
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(iter->first);
 
         // get edge id
         int edgeId = -1;
         for (int i = 0; i < numEdgeNodes; ++i)
-            if(t.destinationAddress == edgeNodesAddresses[i][0])
+            if (t.destinationAddress == edgeNodesAddresses[i][0])
                 edgeId = i;
         // return if flow does not belong to edge
         // if (edgeId == -1)
@@ -478,22 +504,24 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         DropPacketsum += iter->second.packetsDropped.size();
         Delaysum += iter->second.delaySum.GetSeconds();
 
-        cout<<"Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress<<"\n";
-
         APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
         qosValues[edgeId] = APD;
-        cout << "Average Packet Delay: " << APD<< "\n";
+
+        if (verbose) {
+            cout << "Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress << "\n";
+            cout << "Average Packet Delay: " << APD << "\n";
+        }
     }
     Simulator::Schedule(managerInterval, &getDelayFlowMon, monitor, classifier);
 }
 
-int getNodeId(Ptr<Node> node, string type = "edge")
+int getNodeId(Ptr<Node> node, string type = "server")
 {
 
     // seleced the desired node container
     NodeContainer tmpNodesContainer;
-    if (type == "edge")
-        tmpNodesContainer = edgeNodes;
+    if (type == "server")
+        tmpNodesContainer = serverNodes;
     else if (type == "ue")
         tmpNodesContainer = ueNodes;
     else if (type == "enb")
@@ -506,6 +534,7 @@ int getNodeId(Ptr<Node> node, string type = "edge")
     }
 
     // return -1 if no cell has been found
+    throw "edge not found aaaaaa!!";
     return -1;
 }
 
@@ -530,12 +559,11 @@ void requestApplication(Ptr<Node> ueNode,
         return;
     }
 
-    NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer, "edge"));
+    NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer, "server"));
     if (resources[getNodeId(targetServer)] <= 0) {
         // NS_LOG_UNCOND("APPLICATION FAILED FOR LACK OF RESOURCES");
         return;
     }
-
 
     // cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     ++applicationPort;
@@ -580,7 +608,7 @@ void migrate(Ptr<Node> sourceServer,
     }
     if (getNodeId(targetServer) < 0)
         return;
-    
+
     NS_LOG_UNCOND("Migration from node " << getNodeId(sourceServer) << " to node " << getNodeId(targetServer));
 
     resources[getNodeId(sourceServer)]++;
@@ -629,20 +657,20 @@ int getCellId(int nodeId)
 int main(int argc, char* argv[])
 {
     int randomSeed = 5;
-    
+
     // Command line arguments
     CommandLine cmd;
-    cmd.AddValue ("algorithm", "algorithm", algorithm);
-    cmd.AddValue ("numEnbs", "Number of Enbs in the simulation", numEnbs);
-    cmd.AddValue ("numNodes", "number of Nodes in the simulation", numNodes);
-    cmd.AddValue ("randomSeed", "randomSeed", randomSeed);
-    cmd.AddValue ("verbose", "Tell echo applications to log if true", verbose);
+    cmd.AddValue("algorithm", "algorithm", algorithm);
+    cmd.AddValue("numEnbs", "Number of Enbs in the simulation", numEnbs);
+    cmd.AddValue("numNodes", "number of Nodes in the simulation", numNodes);
+    cmd.AddValue("randomSeed", "randomSeed", randomSeed);
+    cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
 
     ConfigStore inputConfig;
     inputConfig.ConfigureDefaults();
 
     cmd.Parse(argc, argv);
-    
+
     // logs enabled
     if (verbose) {
         LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
@@ -657,17 +685,16 @@ int main(int argc, char* argv[])
     RngSeedManager::SetSeed(randomSeed); // Changes seed from default of 1 to 3
     srand(randomSeed);
 
-
     // set dimentions on the matrixes
-	numEdgeNodes = numEnbs;
+    numEdgeNodes = numEnbs;
     serverLoad.reserve(numEdgeNodes + numFogNodes);
     qosValues.reserve(numEdgeNodes + numFogNodes);
     cellUe.setDimensions(numEnbs, numNodes);
     edgeUe.setDimensions(numEdgeNodes + numFogNodes, numNodes);
-    edgeMigrationChart.setDimensions(numEdgeNodes, numEdgeNodes);
-    edgeNodesAddresses.setDimensions(numEdgeNodes + numFogNodes,2);
-    handoverPredictions.setDimensions(numNodes,3);
-    
+    edgeMigrationChart.setDimensions(numEdgeNodes + numFogNodes, numEdgeNodes + numFogNodes);
+    edgeNodesAddresses.setDimensions(numEdgeNodes + numFogNodes, 2);
+    handoverPredictions.setDimensions(numNodes, 3);
+
     // fill all edge nodes with a different number of processing units
     resources.assign(numEdgeNodes + numFogNodes, initialEdgeResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
@@ -679,7 +706,7 @@ int main(int argc, char* argv[])
         resources[numEdgeNodes + i] = rand() % initialFogResources + 5;
         cout << "Fog server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
-    
+
     // helpers used
     Ptr<LteHelper> lteHelper = CreateObject<LteHelper>();
     Ptr<EpcHelper> epcHelper;
@@ -837,7 +864,6 @@ int main(int argc, char* argv[])
 
     // --------------------EVENTS-----------------------------------------
 
-
     Simulator::Schedule(Simulator::Now(), &manager);
 
     // netanim setup
@@ -899,3 +925,4 @@ int main(int argc, char* argv[])
     Simulator::Destroy();
     return 0;
 }
+
