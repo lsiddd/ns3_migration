@@ -383,7 +383,7 @@ void manager()
 
     cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
 
-    for (int i = 0; i < numEdgeNodes; ++i) {
+    for (int i = 0; i < numEdgeNodes + numFogNodes; ++i) {
         cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
     }
 
@@ -492,7 +492,7 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
 
         // get edge id
         int edgeId = -1;
-        for (int i = 0; i < numEdgeNodes; ++i)
+        for (int i = 0; i < numEdgeNodes + numFogNodes; ++i)
             if (t.destinationAddress == edgeNodesAddresses[i][0])
                 edgeId = i;
         // return if flow does not belong to edge
@@ -530,18 +530,23 @@ int getNodeId(Ptr<Node> node, string type = "server")
     // find th enode id
     for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i) {
         if (node == tmpNodesContainer.Get(i))
+        {
+            NS_LOG_UNCOND("node " << node << " is " << tmpNodesContainer.Get(i) << " ?");
             return i;
+        }
     }
 
+    NS_LOG_UNCOND("node " << node);
+    NS_LOG_UNCOND("node type " << type);
     // return -1 if no cell has been found
-    throw "edge not found aaaaaa!!";
+    // throw "edge not found aaaaaa!!";
     return -1;
 }
 
 int getEdge(int nodeId)
 {
     int edgeId = -1;
-    for (int i = 0; i < numEdgeNodes; ++i)
+    for (int i = 0; i < numEdgeNodes + numFogNodes; ++i)
         if (edgeUe[i][nodeId])
             edgeId = i;
     return edgeId;
@@ -773,18 +778,19 @@ int main(int argc, char* argv[])
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
     for (int i = 0; i < numEdgeNodes + numFogNodes; ++i) {
         // create all edge nodes with different delays, some of them unfit fot the application
-        Ptr<Node> node;
-        if (i < numEdgeNodes)
-            node = edgeNodes.Get(i);
-        else
-            node = fogNodes.Get(i - numEdgeNodes);
+        Ptr<Node> node = serverNodes.Get(i);
+
+        int delay = rand() % 10; // in milliseconds
+        // if it's a fog node
+        if (i > numEdgeNodes)
+            delay = rand()%40;
 
         // Create the Internet
         PointToPointHelper p2ph;
         p2ph.SetDeviceAttribute("DataRate", DataRateValue(DataRate("100Gb/s")));
         p2ph.SetDeviceAttribute("Mtu", UintegerValue(1500));
         // random link delay
-        p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(rand() % 40)));
+        p2ph.SetChannelAttribute("Delay", TimeValue(MilliSeconds(delay)));
         NetDeviceContainer internetDevices = p2ph.Install(pgw, node);
         Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
         // interface 0 is localhost, 1 is the p2p device
