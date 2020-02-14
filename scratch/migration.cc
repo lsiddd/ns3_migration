@@ -61,7 +61,7 @@ int getCellId(int nodeId);
 float PI = 3.14159265; // pi
 // scenario variables
 uint16_t numNodes = 10;
-uint16_t numEnbs = 9;
+uint16_t numEnbs = 20;
 uint16_t numEdgeNodes = numEnbs;
 uint16_t numFogNodes = 7;
 
@@ -73,8 +73,8 @@ Time simTime = Seconds(40);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
-NodeContainer edgeNodes;
 NodeContainer enbNodes;
+NodeContainer edgeNodes;
 NodeContainer fogNodes;
 NodeContainer serverNodes;
 
@@ -706,7 +706,7 @@ int main(int argc, char* argv[])
     qosValues.resize(numEdgeNodes + numFogNodes);
     cellUe.setDimensions(numEnbs, numNodes);
     edgeUe.setDimensions(numEdgeNodes + numFogNodes, numNodes);
-    edgeMigrationChart.setDimensions(numEdgeNodes + numFogNodes, numEdgeNodes + numFogNodes);
+    edgeMigrationChart.setDimensions(numNodes, numEdgeNodes + numFogNodes);
     edgeNodesAddresses.setDimensions(numEdgeNodes + numFogNodes, 2);
     handoverPredictions.setDimensions(numNodes, 3);
 
