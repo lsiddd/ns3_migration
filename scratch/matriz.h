@@ -69,5 +69,5 @@ void matriz<T>::setDimensions(unsigned long rows, unsigned long columns) {
     this->rows = rows;
     this->columns = columns;
     row.setColumns(columns);
-    elements.reserve(rows*columns);
+    elements.resize(rows*columns);
 }
