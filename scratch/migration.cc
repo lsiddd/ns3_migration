@@ -1,22 +1,22 @@
 /* -*-  Mode: C++; c-file-style: "gnu"; indent-tabs-mode:nil; -*- */
 /*
- * Copyright (c) 2019 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation;
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
- * Authors: Lucas Pacheco <lucas.pacheco@itec.ufpa.br>
- */
+* Copyright (c) 2019 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License version 2 as
+* published by the Free Software Foundation;
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the Free Software
+* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*
+* Authors: Lucas Pacheco <lucas.pacheco@itec.ufpa.br>
+*/
 
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
@@ -30,26 +30,21 @@
 #include "ns3/flow-monitor-helper.h"
 #include "ns3/ipv4-flow-classifier.h"
 #include "ns3/csma-module.h"
-#include <stdlib.h> /* srand, rand */
 // #include "ns3/gtk-config-store.h"
 #include <sys/stat.h> // file permissions
 // Used for cell allocation
 #include <math.h> // sin cos pow
 #include <limits> // limit of the int type
 #include <vector>
+#include <stdlib.h> /* srand, rand */
 #include <random> // because rand() sucks
 #include "matriz.h"
 
-using namespace std;
 using namespace ns3;
 
 std::default_random_engine generator;
 
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
-/*
-TODO: * rewrite entire manager :c
-      * integrate fog nodes into migration decision
-*/
 
 string algorithm = "MOSAIC";
 
@@ -58,10 +53,10 @@ void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 int getCellId(int nodeId);
 
 // pi
-float PI = 3.14159265; // pi
+const float PI = 3.14159265; // pi
 // scenario variables
 uint16_t numNodes = 10;
-uint16_t numEnbs = 20;
+uint16_t numEnbs = 40;
 uint16_t numEdgeNodes = numEnbs;
 uint16_t numFogNodes = 7;
 
@@ -69,7 +64,7 @@ uint16_t numFogNodes = 7;
 string mobilityTrace = "mobil/rw.ns_movements";
 
 // simulation variables
-Time simTime = Seconds(40);
+Time simTime = Seconds(10);
 
 // inicialize node containers as global objects
 NodeContainer ueNodes;
@@ -151,7 +146,7 @@ void HandoverPrediction(int nodeId, int timeWindow)
         return;
 
     // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
-    ifstream mobilityFile(mobilityTrace);
+    std::ifstream mobilityFile(mobilityTrace);
 
     string nodeColumn;
     string fileLines;
@@ -169,7 +164,7 @@ void HandoverPrediction(int nodeId, int timeWindow)
     while (getline(mobilityFile, fileLines)) {
         if (fileLines.find("setdest") != string::npos) {
 
-            stringstream ss(fileLines);
+            std::stringstream ss(fileLines);
             // cout << ss.str();
             ss >> aux1 >> aux2 >> node_position_time >> aux4 >> aux5 >> node_x >> node_y >> node_z;
 
@@ -200,8 +195,8 @@ void HandoverPrediction(int nodeId, int timeWindow)
 
                 // if closest enb != current, predict handover
                 if (closestCell != getCellId(nodeId)) {
-                    cout << "Handover to happen at " << node_position_time << endl;
-                    cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
+                    std::cout << "Handover to happen at " << node_position_time << endl;
+                    std::cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
                     handoverPredictions[nodeId][0] = node_position_time;
                     handoverPredictions[nodeId][1] = getCellId(nodeId);
                     handoverPredictions[nodeId][2] = closestCell;
@@ -220,8 +215,8 @@ void NotifyConnectionEstablishedUe(string context,
 {
     NS_LOG_INFO(Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << "\n");
 
-    stringstream temp_cell_dir;
-    stringstream ueId;
+    std::stringstream temp_cell_dir;
+    std::stringstream ueId;
     temp_cell_dir << "./v2x_temp/" << cellid;
     ueId << temp_cell_dir.str() << "/" << rnti;
     if (mkdir(temp_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
@@ -231,9 +226,9 @@ void NotifyConnectionEstablishedUe(string context,
     outfile.close();
 
     /*
-    TRY TO CONNECT TO THE EDGE SERVER IN THE BEGGINING OF THE SIMULATION,
-    IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
-    */
+TRY TO CONNECT TO THE EDGE SERVER IN THE BEGGINING OF THE SIMULATION,
+IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
+*/
     // resources[cellid - 1] => IS THE POSITION OF THE CELL'S EDGE
     if (resources[cellid - 1] == 0) {
         int fallbackFog;
@@ -246,13 +241,13 @@ void NotifyConnectionEstablishedUe(string context,
                 fallbackFog = cellid - 1;
         } while (fallbackFog == cellid - 1);
 
-        cout << "Failed to allocate user" << imsi << " in edge " << cellid - 1 << "\n";
-        cout << "allocating to random fog " << fallbackFog << endl;
+        std::cout << "Failed to allocate user" << imsi << " in edge " << cellid - 1 << "\n";
+        std::cout << "allocating to random fog " << fallbackFog << endl;
         resources[fallbackFog]--;
         edgeUe[fallbackFog][imsi - 1] = 1;
     }
     else {
-        cout << "User " << imsi << " connected to edge " << cellid - 1 << endl;
+        std::cout << "User " << imsi << " connected to edge " << cellid - 1 << endl;
         edgeUe[cellid - 1][imsi - 1] = 1;
         resources[cellid - 1]--;
     }
@@ -266,11 +261,11 @@ void NotifyHandoverStartUe(string context,
     uint16_t rnti,
     uint16_t targetCellId)
 {
-    cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI " << rnti << ", doing handover to CellId " << targetCellId << "\n";
+    std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI " << rnti << ", doing handover to CellId " << targetCellId << "\n";
 
     cellUe[cellid - 1][imsi - 1] = 0;
 
-    stringstream ueId;
+    std::stringstream ueId;
     ueId << "./v2x_temp/" << cellid << "/" << rnti;
     remove(ueId.str().c_str());
 
@@ -288,10 +283,10 @@ void NotifyHandoverEndOkUe(string context,
     uint16_t cellid,
     uint16_t rnti)
 {
-    cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << "\n";
+    std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << "\n";
 
-    stringstream target_cell_dir;
-    stringstream newUeId;
+    std::stringstream target_cell_dir;
+    std::stringstream newUeId;
     target_cell_dir << "./v2x_temp/" << cellid;
     newUeId << target_cell_dir.str() << "/" << rnti;
     if (mkdir(target_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
@@ -308,7 +303,7 @@ void NotifyConnectionEstablishedEnb(string context,
     uint16_t cellid,
     uint16_t rnti)
 {
-    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": successful connection of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
+    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": successful connection of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
 void NotifyHandoverStartEnb(string context,
@@ -317,7 +312,7 @@ void NotifyHandoverStartEnb(string context,
     uint16_t rnti,
     uint16_t targetCellId)
 {
-    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << "\n";
+    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << "\n";
 }
 
 void NotifyHandoverEndOkEnb(string context,
@@ -325,20 +320,20 @@ void NotifyHandoverEndOkEnb(string context,
     uint16_t cellid,
     uint16_t rnti)
 {
-    cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
+    std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
 Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosition)
 {
 
-    cout << "allocationg cells positions\n";
+    std::cout << "allocationg cells positions\n";
     int x, y;
     int distance = 100;
     int smallCellRadius = 20;
     ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
 
     if (randomCellAlloc) {
-        cout << "random alloc\n";
+        std::cout << "random alloc\n";
         for (int i = 0; i < numEnbs; ++i) {
             x = rand() % 200;
             y = rand() % 200;
@@ -349,7 +344,7 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
         return HpnPosition;
     }
     else if (rowTopology) {
-        cout << "row alloc\n";
+        std::cout << "row alloc\n";
         int x_start = 700;
         int y_start = 500;
         for (int i = 0; i < numEnbs; ++i)
@@ -357,7 +352,7 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
         return HpnPosition;
     }
     else {
-        cout << "hex alloc\n";
+        std::cout << "hex alloc\n";
         int x_start = 100;
         int y_start = 100;
 
@@ -381,18 +376,17 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
 // migrations manager
 void manager()
 {
-    double weights[4] = {0.5, 0.25, 0.125, 0.125};
+    double weights[4] = { 0.5, 0.25, 0.125, 0.125 };
 
     Simulator::Schedule(managerInterval, &manager);
 
-    cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
+    std::cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
 
     for (int i = 0; i < numEdgeNodes + numFogNodes; ++i) {
-        cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
+        std::cout << "Edge server n " << i << " with " << resources[i] << " resource units\n";
     }
 
-    cout << "..................................\n\n\n";
-
+    std::cout << "..................................\n\n\n";
 
     for (int i = 0; i < numNodes; ++i) {
         // check if node is being served
@@ -402,14 +396,15 @@ void manager()
 
         if (serving_node != -1) {
             if (serving_node == getCellId(i))
-                cout << "node " << i << " being served by tier 1\n";
+                std::cout << "node " << i << " being served by tier 1\n";
             else
-                cout << "node " << i << " being served by fog\n";
+                std::cout << "node " << i << " being served by fog\n";
             // perform predictions to update prediction vector
 
-            if (algorithm == "nomigration" || algorithm == "greedy");
+            if (algorithm == "nomigration" || algorithm == "greedy")
+                ;
 
-            else{
+            else {
                 int bestEdgeServer = -1;
                 int greatestScore = -1;
                 int edgeId = 0;
@@ -420,7 +415,7 @@ void manager()
                 // if a handover is going to happen
                 if (Seconds(handoverPredictions[i][0]) > Simulator::Now()) {
                     // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
-                    while ( (uint32_t) edgeId < serverNodes.GetN()) {
+                    while ((uint32_t)edgeId < serverNodes.GetN()) {
                         double qosvalue = 0;
                         double distanceValue = 0;
 
@@ -428,7 +423,7 @@ void manager()
                         // target cell of the handover
 
                         // add the distance metric (1 for edge, 0.5 for fog)
-                        if(edgeId > numEdgeNodes - 1)
+                        if (edgeId > numEdgeNodes - 1)
                             distanceValue = 0.5;
                         else
                             distanceValue = 1;
@@ -446,7 +441,6 @@ void manager()
                             qosvalue += 1 / (qosValues[edgeId]);
                         score = weights[2] * qosvalue;
 
-
                         if (resources[edgeId] == 0)
                             score = 0;
 
@@ -457,8 +451,9 @@ void manager()
                         edgeId++;
                     }
                     if (bestEdgeServer != serving_node) {
-                        if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds()); // do nothing
-                            // return;
+                        if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds())
+                            ; // do nothing
+                        // return;
                         else {
                             migrate(serverNodes.Get(serving_node), serverNodes.Get(bestEdgeServer),
                                 edgeNodesAddresses[serving_node][1], edgeNodesAddresses[bestEdgeServer][1]);
@@ -475,7 +470,6 @@ void manager()
             NS_LOG_UNCOND("Node " << i << " not being served?");
         }
     }
-
 }
 
 void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifier)
@@ -484,11 +478,11 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
 
     Time now = Simulator::Now();
 
-    double txPacketsum;
-    double rxPacketsum;
-    double DropPacketsum;
-    double Delaysum;
-    double APD;
+    double txPacketsum = 0;
+    double rxPacketsum = 0;
+    double DropPacketsum = 0;
+    double Delaysum = 0;
+    double APD = 0;
 
     //Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon->GetClassifier ());
     map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
@@ -504,8 +498,8 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
             if (t.destinationAddress == edgeNodesAddresses[i][0])
                 edgeId = i;
         // return if flow does not belong to edge
-        // if (edgeId == -1)
-        //     return;
+        if (edgeId == -1)
+            continue;
 
         txPacketsum += iter->second.txPackets;
         rxPacketsum += iter->second.rxPackets;
@@ -516,8 +510,8 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         qosValues[edgeId] = APD;
 
         if (verbose) {
-            cout << "Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress << "\n";
-            cout << "Average Packet Delay: " << APD << "\n";
+            std::cout << "Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress << "\n";
+            std::cout << "Average Packet Delay: " << APD << "\n";
         }
     }
     Simulator::Schedule(managerInterval, &getDelayFlowMon, monitor, classifier);
@@ -537,17 +531,12 @@ int getNodeId(Ptr<Node> node, string type = "server")
 
     // find th enode id
     for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i) {
-        if (node == tmpNodesContainer.Get(i))
-        {
+        if (node == tmpNodesContainer.Get(i)) {
             // NS_LOG_UNCOND("node " << node << " is " << tmpNodesContainer.Get(i) << " ?");
             return i;
         }
     }
 
-    // NS_LOG_UNCOND("node " << node);
-    // NS_LOG_UNCOND("node type " << type);
-    // return -1 if no cell has been found
-    // throw "edge not found aaaaaa!!";
     return -1;
 }
 
@@ -555,7 +544,7 @@ int getEdge(int nodeId)
 {
     int edgeId = -1;
     for (int i = 0; i < numEdgeNodes + numFogNodes; ++i)
-        if (edgeUe[i][nodeId]){
+        if (edgeUe[i][nodeId]) {
 
             edgeId = i;
         }
@@ -570,7 +559,7 @@ void requestApplication(Ptr<Node> ueNode,
     // return if migration is not available
     // and if node is being served
     if (!doMigrate || getEdge(getNodeId(ueNode, "ue")) < 0) {
-        cout << "Migration not enabled. :(\n";
+        std::cout << "Migration not enabled. :(\n";
         return;
     }
 
@@ -613,7 +602,7 @@ void migrate(Ptr<Node> sourceServer,
 
     // return if migration is not available
     if (!doMigrate) {
-        cout << "Migration not enabled. :(\n";
+        std::cout << "Migration not enabled. :(\n";
         return;
     }
 
@@ -714,12 +703,12 @@ int main(int argc, char* argv[])
     resources.assign(numEdgeNodes + numFogNodes, initialEdgeResources);
     for (int i = 0; i < numEdgeNodes; ++i) {
         resources[i] = rand() % initialEdgeResources + 1;
-        cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
+        std::cout << "Edge server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
 
     for (int i = 0; i < numFogNodes; ++i) {
         resources[numEdgeNodes + i] = rand() % initialFogResources + 1;
-        cout << "Fog server " << i << " initialized with " << resources[numEdgeNodes + i] << " resources" << endl;
+        std::cout << "Fog server " << i << " initialized with " << resources[numEdgeNodes + i] << " resources" << endl;
     }
 
     // helpers used
@@ -793,7 +782,7 @@ int main(int argc, char* argv[])
         int delay = rand() % 10; // in milliseconds
         // if it's a fog node
         if (i > numEdgeNodes)
-            delay = rand()%40;
+            delay = rand() % 40;
 
         // Create the Internet
         PointToPointHelper p2ph;
@@ -922,23 +911,23 @@ int main(int argc, char* argv[])
     FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
     for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
-        cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
-        cout << "  Tx Packets: " << i->second.txPackets << "\n";
-        cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-        cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
-        cout << "  Rx Packets: " << i->second.rxPackets << "\n";
-        cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-        cout << "  Lost Packets:   " << i->second.lostPackets << "\n";
-        cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        std::cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
+        std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
+        std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
+        std::cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
+        std::cout << "  Rx Packets: " << i->second.rxPackets << "\n";
+        std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
+        std::cout << "  Lost Packets:   " << i->second.lostPackets << "\n";
+        std::cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000 << " Mbps\n";
         if (i->second.rxBytes)
-            cout << "  DelaySum: " << i->second.jitterSum / (i->second.rxPackets + i->second.txPackets) << "\n";
-        cout << "......................................\n";
+            std::cout << "  DelaySum: " << i->second.jitterSum / (i->second.rxPackets + i->second.txPackets) << "\n";
+        std::cout << "......................................\n";
     }
 
     // serialize flow monitor to xml
     flowmon.SerializeToXmlFile("migration_flowmon.xml", true, true);
 
     Simulator::Destroy();
+
     return 0;
 }
-
