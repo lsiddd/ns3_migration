@@ -16,8 +16,6 @@
 * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 *
 * Authors: Lucas Pacheco <lucas.pacheco@itec.ufpa.br>
-* todo: * rethink manager
-        * include could servers
 */
 
 #include "ns3/core-module.h"
@@ -63,10 +61,10 @@ const float PI = 3.14159265; // pi
 // server characteristics
 // the first index is the metric: lat, bw
 // second index is the type of server: mist, edge, fog, cloud
-int serverReqs[4][2] = {{1, 1},
-                        {4, 2},
-                        {10, 10},
-                        {100, 100}};
+int serverReqs[4][3] = {{1, 1, 1},
+                        {4, 2, 2},
+                        {10, 10, 3},
+                        {100, 100, 4}};
 
 // applications class 1, 2, 3, and 4
 // latency in ms and bw in mbps, and prioritary
@@ -80,7 +78,7 @@ uint16_t numVeics = 0;
 
 int numNodes = numPeds + numVeics;
 
-uint16_t numEnbs = 20;
+uint16_t numEnbs = 100;
 uint16_t numEdgeNodes = numEnbs;
 uint16_t numFogNodes = 7;
 uint16_t numMistNodes = 10;
@@ -415,7 +413,7 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
 // migrations manager
 void manager()
 {
-    double weights[4] = { 0.5, 0.25, 0.125, 0.125 };
+    double weights[3] = { 0.57, 0.28, 0.14 };
 
     Simulator::Schedule(managerInterval, &manager);
 
@@ -457,38 +455,35 @@ void manager()
             if (Seconds(handoverPredictions[i][0]) > Simulator::Now()) {
                 // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
                 while ((uint32_t)edgeId < serverNodes.GetN()) {
-                    double qosvalue = 0;
-                    double distanceValue = 0;
-
                     double score = 0;
                     // target cell of the handover
 
-                    // add the distance metric (1 for edge, 0.5 for fog)
-                    if (edgeId < numMistNodes)
-                        distanceValue = 0;
-                    else if (edgeId < numMistNodes + numEdgeNodes)
-                        distanceValue = 0.5;
-                    else
-                        distanceValue = 1;
-
-                    // add weighted distance
-                    score += weights[0] * distanceValue;
-
-                    //add weighted resources
-                    score += weights[1] * resources[edgeId];
-
-                    // decrease latency if user is in edge server
-                    if (edgeId == serving_node)
-                        qosvalue += 1 / (qosValues[edgeId] / 2);
-                    else
-                        qosvalue += 1 / (qosValues[edgeId]);
-                    score = weights[2] * qosvalue;
+                    // get qos and cost metrics
+                    if (edgeId < numMistNodes) {
+                        score += (1 / serverReqs[0][0]) * weights[0];
+                        score += serverReqs[0][2] * weights[1];
+                        score += (1 / serverReqs[0][2]) * weights[2];
+                    }
+                    else if (edgeId < numMistNodes + numEdgeNodes) {
+                        score += (1 / serverReqs[1][0]) + weights[0];
+                        score += (serverReqs[1][2]) + weights[1];
+                        score += (1 / serverReqs[1][2]) + weights[2];
+                    }
+                    else if (edgeId < numMistNodes + numEdgeNodes + numFogNodes) {
+                        score += (1 / serverReqs[2][0]) * weights[0];
+                        score += (serverReqs[2][2]) * weights[1];
+                        score += (1 / serverReqs[2][2]) * weights[2];
+                    }
+                    else {
+                        score += (1 / serverReqs[3][0]) * weights[0];
+                        score += (serverReqs[3][2]) * weights[1];
+                        score += (1 / serverReqs[3][2]) * weights[2];
+                    }
 
                     if (resources[edgeId] == 0)
-                        score = 0;
+                        continue;
 
                     LOG("server " << edgeId << " score: " << score);
-                    wait;
 
                     if (score > greatestScore) {
                         greatestScore = score;
