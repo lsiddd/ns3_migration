@@ -481,9 +481,11 @@ void manager()
                     }
 
                     if (resources[edgeId] == 0)
-                        continue;
+                        score = 0;
+                    if (algorithm == "qos")
+                        score = 1 / serverReqs[1][0];
 
-                    LOG("server " << edgeId << " score: " << score);
+                    LOG(Simulator::Now().GetSeconds() <<  " -- server " << edgeId << " score: " << score);
 
                     if (score > greatestScore) {
                         greatestScore = score;
