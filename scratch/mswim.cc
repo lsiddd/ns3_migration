@@ -751,6 +751,7 @@ int main(int argc, char* argv[])
     cmd.AddValue("numNodes", "number of Nodes in the simulation", numNodes);
     cmd.AddValue("randomSeed", "randomSeed", randomSeed);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
+    cmd.AddValue("applicationType", "application type (0..2)", applicationType);
 
     ConfigStore inputConfig;
     inputConfig.ConfigureDefaults();
