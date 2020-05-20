@@ -49,34 +49,16 @@ std::default_random_engine generator;
 
 NS_LOG_COMPONENT_DEFINE("Ns3Migration");
 
-string algorithm = "MOSCA";
-
-// function prototipes
+const float PI = 3.14159265; // pi
 void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 int getCellId(int nodeId);
 
-// pi
-const float PI = 3.14159265; // pi
-
-// server characteristics
-// the first index is the metric: lat, bw
-// second index is the type of server: mist, edge, fog, cloud
-int serverReqs[4][3] = {{1, 1, 1},
-                        {4, 2, 2},
-                        {10, 10, 3},
-                        {100, 100, 4}};
-
-// applications class 1, 2, 3, and 4
-// latency in ms and bw in mbps, and prioritary
-int applicationReqs[3][3] = {{10, 10, 1}, 
-                             {10, 100, 1},
-                             {1000, 1, 0}};
+// COnfigurable parameters
+string algorithm = "MOSCA";
 
 // scenario variables
 uint16_t numPeds = 20;
-uint16_t numVeics = 0;
-
-int numNodes = numPeds + numVeics;
+uint16_t numVeics = 20;
 
 uint16_t numEnbs = 100;
 uint16_t numEdgeNodes = numEnbs;
@@ -84,18 +66,52 @@ uint16_t numFogNodes = 7;
 uint16_t numMistNodes = 10;
 uint16_t numCloudNodes = 1;
 
-uint16_t numServers = numMistNodes + numEdgeNodes + numFogNodes + numCloudNodes;
-// total amount of resources in the network
-int totalNetResources = 0;
-
 // mobility trace file
-string pedMobilityTrace = "mobil/LusT.tcl";
-string veicMobilityTrace = "mobil/vehicleTrace.ns_movements";
+string pedMobilityTrace = "mobil/vehicleTrace.ns_movements";
+string veicMobilityTrace = "mobil/LusT.tcl";
 
 // simulation variables
 Time simTime = Seconds(100);
 
-// inicialize node containers as global objects
+// enable logs
+bool verbose = false;
+
+// perform migrations
+bool doMigrate = true;
+
+// server characteristics
+// the first index is the metric: lat, req, and cost
+// second index is the type of server: mist, edge, fog, cloud
+int serverReqs[4][3] = {{1, 1, 4},
+                        {4, 2, 3},
+                        {10, 10, 2},
+                        {100, 100, 1}};
+
+// applications class 1, 2, 3, and 4
+// latency in ms and bw in mbps, and prioritary
+int applicationReqs[3][3] = {{10, 10, 1}, 
+                             {10, 100, 1},
+                             {1000, 1, 0}};
+uint16_t applicationType = 0;
+
+//-----VARIABLES THAT DEPEND ON THE NUMBER OF SERVERS----
+// The resources variable tells which server has one or
+// more of the recources needed in this simulation
+// the resources are:
+vector<uint16_t> resources;
+int initialEdgeResources = 5;
+int initialFogResources = 10;
+
+// type of cell position allocation
+bool rowTopology = false;
+bool randomCellAlloc = true;
+
+// ----------VARIABLES TO CALCULATE METRICS-----------
+std::vector<int> latency;
+std::vector<int> cost;
+
+// ----------VARIABLES YOU DONT TOUCH-----------------
+// containers
 NodeContainer pedNodes;
 NodeContainer veicNodes;
 NodeContainer ueNodes;
@@ -111,25 +127,19 @@ NodeContainer serverNodes;
 // ApplicationContariners
 ApplicationContainer apps;
 
+// control variables
+int numNodes = numPeds + numVeics;
+
+uint16_t numServers = numMistNodes + numEdgeNodes + numFogNodes + numCloudNodes;
+// total amount of resources in the network
+int totalNetResources = 0;
+
 // port ranges for each application
 static int migrationPort = 1000;
 static int applicationPort = 3000;
 
-// enable logs
-bool verbose = false;
-
-// perform migrations
-bool doMigrate = true;
-
 unsigned int handNumber = 0; // number of handovers executed
 
-//-----VARIABLES THAT DEPEND ON THE NUMBER OF SERVERS----
-// The resources variable tells which server has one or
-// more of the recources needed in this simulation
-// the resources are:
-vector<uint16_t> resources;
-int initialEdgeResources = 5;
-int initialFogResources = 10;
 
 // units of processing used at the moment
 vector<uint16_t> serverLoad;
@@ -143,10 +153,6 @@ matriz<Ipv4Address> serverNodesAddresses;
 Time managerInterval = MilliSeconds(100);
 // size of the sevices to be migrated in bytes
 uint64_t migrationSize = 10000000;
-
-// type of cell position allocation
-bool rowTopology = false;
-bool randomCellAlloc = true;
 
 // data rate
 Time interPacketInterval = MilliSeconds(5);
@@ -171,6 +177,17 @@ double qosProbe();
 void HandoverPrediction(int nodeId, int timeWindow);
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address);
+
+
+void save_to_csv(std::vector<int> metrics, std::string filename)
+{
+    std::ofstream out(filename);
+
+    for (auto& row : metrics) {
+        out << row << ',';
+        out << '\n';
+    }
+}
 
 void HandoverPrediction(int nodeId, int timeWindow)
 {
@@ -432,14 +449,26 @@ void manager()
         NS_LOG_UNCOND("Serving node: " << serving_node);
 
         if (serving_node != -1) {
-            if (serving_node < numMistNodes)
+            if (serving_node < numMistNodes){
                 LOG("Node " << i << " bing served by mist");
-            else if (serving_node < numMistNodes + numEdgeNodes)
+                latency.push_back(serverReqs[0][0]);
+                cost.push_back(serverReqs[0][1]);
+            }
+            else if (serving_node < numMistNodes + numEdgeNodes){
                 LOG("Node " << i << " bing served by edge");
-            else if (serving_node < numMistNodes + numEdgeNodes + numFogNodes)
+                latency.push_back(serverReqs[1][0]);
+                cost.push_back(serverReqs[1][1]);
+            }
+            else if (serving_node < numMistNodes + numEdgeNodes + numFogNodes){
                 LOG("Node " << i << " bing served by fog");
-            else
+                latency.push_back(serverReqs[2][0]);
+                cost.push_back(serverReqs[2][1]);
+            }
+            else{
                 LOG("Node " << i << " bing served by cloud");
+                latency.push_back(serverReqs[3][0]);
+                cost.push_back(serverReqs[3][1]);
+            }
 
             if (algorithm == "nomigration" || algorithm == "greedy")
                 continue;
@@ -456,37 +485,48 @@ void manager()
                 // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
                 while ((uint32_t)edgeId < serverNodes.GetN()) {
                     double score = 0;
-                    // target cell of the handover
+                    
+                    // server characteristics
+                    double serverLatency = 0;
+                    double serverCost = 0;
+                    double serverResources = 0;
 
-                    // get qos and cost metrics
+                    // get server metrics
                     if (edgeId < numMistNodes) {
-                        score += (1 / serverReqs[0][0]) * weights[0];
-                        score += serverReqs[0][2] * weights[1];
-                        score += (1 / serverReqs[0][2]) * weights[2];
+                        serverLatency += (1 / serverReqs[0][0]) * weights[0];
+                        serverResources += serverReqs[0][1] * weights[1];
+                        serverCost += (1 / serverReqs[0][1]) * weights[2];
                     }
                     else if (edgeId < numMistNodes + numEdgeNodes) {
-                        score += (1 / serverReqs[1][0]) + weights[0];
-                        score += (serverReqs[1][2]) + weights[1];
-                        score += (1 / serverReqs[1][2]) + weights[2];
+                        serverLatency = (1 / serverReqs[1][0]) + weights[0];
+                        serverResources = (serverReqs[1][1]) + weights[1];
+                        serverCost = (1 / serverReqs[1][2]) + weights[2];
                     }
                     else if (edgeId < numMistNodes + numEdgeNodes + numFogNodes) {
-                        score += (1 / serverReqs[2][0]) * weights[0];
-                        score += (serverReqs[2][2]) * weights[1];
-                        score += (1 / serverReqs[2][2]) * weights[2];
+                        serverLatency = (1 / serverReqs[2][0]) * weights[0];
+                        serverResources = (serverReqs[2][1]) * weights[1];
+                        serverCost = (1 / serverReqs[2][2]) * weights[2];
                     }
                     else {
-                        score += (1 / serverReqs[3][0]) * weights[0];
-                        score += (serverReqs[3][2]) * weights[1];
-                        score += (1 / serverReqs[3][2]) * weights[2];
+                        serverLatency = (1 / serverReqs[3][0]) * weights[0];
+                        serverResources = (serverReqs[3][1]) * weights[1];
+                        serverCost = (1 / serverReqs[3][2]) * weights[2];
                     }
 
-                    if (resources[edgeId] == 0)
+                    // calculate score
+                    if(serverLatency > applicationReqs[applicationType][0] ||
+                        resources[edgeId] == 0)
                         score = 0;
+                    else
+                        score = serverLatency + serverCost + serverResources;
+
+                    // in the case of qos-based
                     if (algorithm == "qos")
                         score = 1 / serverReqs[1][0];
 
                     LOG(Simulator::Now().GetSeconds() <<  " -- server " << edgeId << " score: " << score);
 
+                    // get greated score
                     if (score > greatestScore) {
                         greatestScore = score;
                         bestEdgeServer = edgeId;
@@ -772,7 +812,7 @@ int main(int argc, char* argv[])
     // make sure there are resources for all the applications
     NS_ASSERT_MSG(totalNetResources > numNodes, "Insuficient resources in the network.");
 
-    // helpers used
+    // helpers
     Ptr<LteHelper> lteHelper = CreateObject<LteHelper>();
     Ptr<EpcHelper> epcHelper;
     epcHelper = CreateObject<PointToPointEpcHelper>();
@@ -1001,6 +1041,9 @@ int main(int argc, char* argv[])
 
     // serialize flow monitor to xml
     flowmon.SerializeToXmlFile("migration_flowmon.xml", true, true);
+
+    save_to_csv(latency, "latency.csv");
+    save_to_csv(cost, "cost.csv");
 
     Simulator::Destroy();
 
