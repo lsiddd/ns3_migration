@@ -93,7 +93,7 @@ string pedMobilityTrace = "mobil/LusT.tcl";
 string veicMobilityTrace = "mobil/vehicleTrace.ns_movements";
 
 // simulation variables
-Time simTime = Seconds(10);
+Time simTime = Seconds(100);
 
 // inicialize node containers as global objects
 NodeContainer pedNodes;
@@ -944,7 +944,6 @@ int main(int argc, char* argv[])
 
     // --------------------EVENTS-----------------------------------------
 
-    Simulator::Schedule(Simulator::Now(), &manager);
 
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
@@ -976,7 +975,8 @@ int main(int argc, char* argv[])
     Ptr<FlowMonitor> monitor = flowmon.InstallAll();
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
 
-    // getDelayFlowMon(monitor, classifier);
+    // start the daemons
+    Simulator::Schedule(Simulator::Now(), &manager);
     Simulator::Schedule(Seconds(0.1), &getDelayFlowMon, monitor, classifier);
 
     Simulator::Stop(simTime);
