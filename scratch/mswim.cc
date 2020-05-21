@@ -77,7 +77,7 @@ Time simTime = Seconds(100);
 bool verbose = false;
 
 // perform migrations
-bool doMigrate = true;
+bool doMigrate = false;
 
 // server characteristics
 // the first index is the metric: lat, req, and cost
