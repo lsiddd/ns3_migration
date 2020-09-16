@@ -37,7 +37,7 @@
 #include <limits> // limit of the int type
 #include <vector>
 #include <stdlib.h> /* srand, rand */
-#include <random> // because rand() sucks
+#include <random>   // because rand() sucks
 #include "matriz.h"
 
 #define LOG(x) std::cout << x << std::endl
@@ -54,33 +54,33 @@ void migrate(Ptr<Node>, Ptr<Node>, Ipv4Address, Ipv4Address);
 int getCellId(int nodeId);
 
 // COnfigurable parameters
-string algorithm = "MOSCA";
+string algorithm = "mosca";
 
 // scenario variables
-uint16_t numPeds = 20;
-uint16_t numVeics = 20;
+uint16_t numPeds = 38;
+uint16_t numVeics = 38;
 
-uint16_t numEnbs = 100;
+uint16_t numEnbs = 50;
 uint16_t numEdgeNodes = numEnbs;
-uint16_t numFogNodes = 7;
-uint16_t numMistNodes = 10;
+uint16_t numFogNodes = 10;
+uint16_t numMistNodes = 20;
 uint16_t numCloudNodes = 1;
 
 // mobility trace file
-string pedMobilityTrace = "mobil/vehicleTrace.ns_movements";
+string pedMobilityTrace = "mobil/pedestrian.ns_movements";
 string veicMobilityTrace = "mobil/LusT.tcl";
 
 // simulation variables
-Time simTime = Seconds(100);
+Time simTime = Seconds(50);
 
 // enable logs
 bool verbose = false;
 
 // perform migrations
-bool doMigrate = false;
+bool doMigrate = true;
 
 // server characteristics
-// the first index is the metric: lat, req, and cost
+// the first index is the metric: lat, bw, and cost
 // second index is the type of server: mist, edge, fog, cloud
 int serverReqs[4][3] = {{1, 1, 4},
                         {4, 2, 3},
@@ -89,7 +89,7 @@ int serverReqs[4][3] = {{1, 1, 4},
 
 // applications class 1, 2, 3, and 4
 // latency in ms and bw in mbps, and prioritary
-int applicationReqs[3][3] = {{10, 10, 1}, 
+int applicationReqs[3][3] = {{1, 10, 1},
                              {10, 100, 1},
                              {1000, 1, 0}};
 uint16_t applicationType = 0;
@@ -140,7 +140,6 @@ static int applicationPort = 3000;
 
 unsigned int handNumber = 0; // number of handovers executed
 
-
 // units of processing used at the moment
 vector<uint16_t> serverLoad;
 vector<double> qosValues;
@@ -178,15 +177,16 @@ void HandoverPrediction(int nodeId, int timeWindow);
 void getDelay(Ptr<Node> ueProbeNode, Ptr<Node> edgeProbeNode, Ipv4Address edgeAddress, Ipv4Address ueAddress);
 void requestApplication(Ptr<Node>, Ptr<Node>, Ipv4Address);
 
-
 void save_to_csv(std::vector<int> metrics, std::string filename)
 {
     std::ofstream out(filename);
 
-    for (auto& row : metrics) {
+    for (auto &row : metrics)
+    {
         out << row << ',';
         out << '\n';
     }
+    out.close();
 }
 
 void HandoverPrediction(int nodeId, int timeWindow)
@@ -215,8 +215,10 @@ void HandoverPrediction(int nodeId, int timeWindow)
     string aux1, aux2, aux4, aux5;
     string cell_id;
 
-    while (getline(mobilityFile, fileLines)) {
-        if (fileLines.find("setdest") != string::npos) {
+    while (getline(mobilityFile, fileLines))
+    {
+        if (fileLines.find("setdest") != string::npos)
+        {
 
             std::stringstream ss(fileLines);
             // cout << ss.str();
@@ -228,27 +230,31 @@ void HandoverPrediction(int nodeId, int timeWindow)
             // cin.get();
 
             // for (int time_offset = 0; time_offset < timeWindow; time_offset++)
-            if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + timeWindow == round(node_position_time)) {
+            if (aux4 == nodeColumn && Simulator::Now().GetSeconds() + timeWindow == round(node_position_time))
+            {
                 Vector uePos = Vector(node_x, node_y, node_z);
 
                 // double distanceServingCell = CalculateDistance(uePos, enbNodes.Get(getCellId(nodeId))->GetObject<MobilityModel>()->GetPosition ());
 
                 // calculate distance from node to each enb
-                for (int i = 0; i < numEnbs; ++i) {
+                for (int i = 0; i < numEnbs; ++i)
+                {
                     // get Ith enb  position
                     Vector enbPos = enbNodes.Get(i)->GetObject<MobilityModel>()->GetPosition();
                     // get distance
                     double distanceUeEnb = CalculateDistance(uePos, enbPos);
 
                     // get closest enb
-                    if (distanceUeEnb < shortestDistance) {
+                    if (distanceUeEnb < shortestDistance)
+                    {
                         closestCell = i;
                         shortestDistance = distanceUeEnb;
                     }
                 }
 
                 // if closest enb != current, predict handover
-                if (closestCell != getCellId(nodeId)) {
+                if (closestCell != getCellId(nodeId))
+                {
                     std::cout << "Handover to happen at " << node_position_time << endl;
                     std::cout << "Node " << nodeId << " from cell " << getCellId(nodeId) << " to cell " << closestCell << endl;
                     handoverPredictions[nodeId][0] = node_position_time;
@@ -263,9 +269,9 @@ void HandoverPrediction(int nodeId, int timeWindow)
 }
 
 void NotifyConnectionEstablishedUe(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti)
+                                   uint64_t imsi,
+                                   uint16_t cellid,
+                                   uint16_t rnti)
 {
     NS_LOG_INFO(Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << "\n");
 
@@ -273,7 +279,8 @@ void NotifyConnectionEstablishedUe(string context,
     std::stringstream ueId;
     temp_cell_dir << "./v2x_temp/" << cellid;
     ueId << temp_cell_dir.str() << "/" << rnti;
-    if (mkdir(temp_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
+    if (mkdir(temp_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
+    {
     }
     ofstream outfile(ueId.str().c_str());
     outfile << imsi << endl;
@@ -284,10 +291,12 @@ TRY TO CONNECT TO THE EDGE SERVER IN THE BEGGINING OF THE SIMULATION,
 IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
 */
     // resources[cellid - 1] => IS THE POSITION OF THE CELL'S EDGE
-    if (resources[cellid - 1] == 0) {
+    if (resources[cellid - 1] == 0)
+    {
         int fallbackServer;
         // iterate untill an edge with available resources has been chosen
-        do {
+        do
+        {
             fallbackServer = rand() % (numServers);
             NS_LOG_UNCOND("fallbackServer " << fallbackServer);
             // make while condition true to reiterate
@@ -300,7 +309,8 @@ IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
         resources[fallbackServer]--;
         edgeUe[fallbackServer][imsi - 1] = 1;
     }
-    else {
+    else
+    {
         std::cout << "User " << imsi << " connected to edge " << cellid - 1 << endl;
         edgeUe[cellid - 1][imsi - 1] = 1;
         resources[cellid - 1]--;
@@ -310,32 +320,31 @@ IF NOT POSSIBLE ASSIGN A RANDOM FOG SERVER TO THE USER.
 }
 
 void NotifyHandoverStartUe(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti,
-    uint16_t targetCellId)
+                           uint64_t imsi,
+                           uint16_t cellid,
+                           uint16_t rnti,
+                           uint16_t targetCellId)
 {
     std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI " << rnti << ", doing handover to CellId " << targetCellId << "\n";
 
     cellUe[cellid - 1][imsi - 1] = 0;
 
-    std::stringstream ueId;
-    ueId << "./v2x_temp/" << cellid << "/" << rnti;
-    remove(ueId.str().c_str());
-
-    if (algorithm == "greedy") {
+    if (algorithm == "greedy")
+    {
         // migration of handover start
         Simulator::Schedule(Simulator::Now(), &migrate, edgeNodes.Get(cellid - 1),
-            edgeNodes.Get(targetCellId - 1), serverNodesAddresses[cellid - 1][1], serverNodesAddresses[targetCellId - 1][1]);
+                            edgeNodes.Get(targetCellId - 1), serverNodesAddresses[cellid - 1][1], serverNodesAddresses[targetCellId - 1][1]);
+        edgeUe[cellid - 1][imsi - 1] = 0;
+        edgeUe[targetCellId - 1][imsi - 1] = 1;
     }
 
     ++handNumber;
 }
 
 void NotifyHandoverEndOkUe(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti)
+                           uint64_t imsi,
+                           uint16_t cellid,
+                           uint16_t rnti)
 {
     std::cout << Simulator::Now().GetSeconds() << " " << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << "\n";
 
@@ -343,7 +352,8 @@ void NotifyHandoverEndOkUe(string context,
     std::stringstream newUeId;
     target_cell_dir << "./v2x_temp/" << cellid;
     newUeId << target_cell_dir.str() << "/" << rnti;
-    if (mkdir(target_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
+    if (mkdir(target_cell_dir.str().c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
+    {
     }
     ofstream outfile(newUeId.str().c_str());
     outfile << imsi << endl;
@@ -353,26 +363,26 @@ void NotifyHandoverEndOkUe(string context,
 }
 
 void NotifyConnectionEstablishedEnb(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti)
+                                    uint64_t imsi,
+                                    uint16_t cellid,
+                                    uint16_t rnti)
 {
     std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": successful connection of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
 
 void NotifyHandoverStartEnb(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti,
-    uint16_t targetCellId)
+                            uint64_t imsi,
+                            uint16_t cellid,
+                            uint16_t rnti,
+                            uint16_t targetCellId)
 {
     std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << "\n";
 }
 
 void NotifyHandoverEndOkEnb(string context,
-    uint64_t imsi,
-    uint16_t cellid,
-    uint16_t rnti)
+                            uint64_t imsi,
+                            uint16_t cellid,
+                            uint16_t rnti)
 {
     std::cout << Simulator::Now().GetSeconds() << " " << context << " eNB CellId " << cellid << ": completed handover of UE with IMSI " << imsi << " RNTI " << rnti << "\n";
 }
@@ -386,9 +396,11 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     int smallCellRadius = 20;
     ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
 
-    if (randomCellAlloc) {
+    if (randomCellAlloc)
+    {
         std::cout << "random alloc\n";
-        for (int i = 0; i < numEnbs; ++i) {
+        for (int i = 0; i < numEnbs; ++i)
+        {
             x = rand() % 2000;
             y = rand() % 2000;
             HpnPosition->Add(Vector(x, y, 15));
@@ -397,7 +409,8 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
         outfile.close();
         return HpnPosition;
     }
-    else if (rowTopology) {
+    else if (rowTopology)
+    {
         std::cout << "row alloc\n";
         int x_start = 700;
         int y_start = 500;
@@ -405,7 +418,8 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
             HpnPosition->Add(Vector(x_start + distance * i, y_start, 25));
         return HpnPosition;
     }
-    else {
+    else
+    {
         std::cout << "hex alloc\n";
         int x_start = 100;
         int y_start = 100;
@@ -413,11 +427,13 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
         // add a cell in the center of the scenario
         HpnPosition->Add(Vector(x_start, y_start, 25));
 
-        for (double i = 0; i < 2 * PI; i += PI / 3) {
+        for (double i = 0; i < 2 * PI; i += PI / 3)
+        {
             HpnPosition->Add(Vector(x_start + distance * cos(i), y_start + distance * sin(i), 25));
         }
 
-        for (double i = 0; i < 2 * PI; i += PI / 3) {
+        for (double i = 0; i < 2 * PI; i += PI / 3)
+        {
             HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
             HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) - rand() % 100 + 10, 10));
             HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 - 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
@@ -427,47 +443,96 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
     }
 }
 
+// function that receives the user node container and checks if requirements are being met
+double check_served(NodeContainer ueNodes) {
+    int counter_served = 0;
+
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+        for (uint32_t u = 0; u < numEnbs; ++u) {
+            if (cellUe[u][i]) {
+                counter_served++;
+                continue;
+            }
+        }
+    }
+
+    return (double) counter_served / ueNodes.GetN();
+}
+
+// function that receives the user node container and returns the percentage covered
+double check_coverage(NodeContainer ueNodes) {
+    int counter_covered = 0;
+
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+        for (uint32_t u = 0; u < serverNodes.GetN(); ++u) {
+            if (edgeUe[u][i]) {
+                counter_covered++;
+                continue;
+            }
+        }
+    }
+
+    return (double) counter_covered / ueNodes.GetN();
+}
+
 // migrations manager
 void manager()
 {
-    double weights[3] = { 0.57, 0.28, 0.14 };
+    double weights[3] = {57, 14, 28};
 
     Simulator::Schedule(managerInterval, &manager);
 
     std::cout << "manager started at " << Simulator::Now().GetSeconds() << " \n";
 
-    for (uint32_t i = 0; i < serverNodes.GetN(); ++i) {
+    // a counter to see the percentage of users who
+    //  are served with the minimum application requirements
+    int served_with_reqs = 0;
+    NS_LOG_UNCOND("Percentage of users covered: " << check_coverage(ueNodes));
+    NS_LOG_UNCOND("Percentage of users served: " << check_served(ueNodes));
+
+    for (uint32_t i = 0; i < serverNodes.GetN(); ++i)
+    {
         std::cout << "server n " << i << " with " << resources[i] << " resource units\n";
     }
 
     std::cout << "..................................\n\n\n";
 
-    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+    {
         // check if node is being served
 
         int serving_node = getEdge(i);
         NS_LOG_UNCOND("Serving node: " << serving_node);
 
-        if (serving_node != -1) {
-            if (serving_node < numMistNodes){
-                LOG("Node " << i << " bing served by mist");
+        if (serving_node != -1)
+        {
+            if (serving_node < numMistNodes)
+            {
+                LOG("Node " << i << " being served by mist");
                 latency.push_back(serverReqs[0][0]);
                 cost.push_back(serverReqs[0][1]);
             }
-            else if (serving_node < numMistNodes + numEdgeNodes){
-                LOG("Node " << i << " bing served by edge");
+            else if (serving_node < numMistNodes + numEdgeNodes)
+            {
+                LOG("Node " << i << " being served by edge");
                 latency.push_back(serverReqs[1][0]);
                 cost.push_back(serverReqs[1][1]);
             }
-            else if (serving_node < numMistNodes + numEdgeNodes + numFogNodes){
-                LOG("Node " << i << " bing served by fog");
+            else if (serving_node < numMistNodes + numEdgeNodes + numFogNodes)
+            {
+                LOG("Node " << i << " being served by fog");
                 latency.push_back(serverReqs[2][0]);
                 cost.push_back(serverReqs[2][1]);
             }
-            else{
-                LOG("Node " << i << " bing served by cloud");
+            else
+            {
+                LOG("Node " << i << " being served by cloud");
                 latency.push_back(serverReqs[3][0]);
                 cost.push_back(serverReqs[3][1]);
+            }
+
+            if (latency.back() < applicationReqs[applicationType][0]) {
+                served_with_reqs++;
             }
 
             if (algorithm == "nomigration" || algorithm == "greedy")
@@ -480,78 +545,100 @@ void manager()
             // I will just assume that the predictions are right
             HandoverPrediction(i, 5);
 
-                // if a handover is going to happen
-            if (Seconds(handoverPredictions[i][0]) > Simulator::Now()) {
+            // if a handover is going to happen
+            if (Seconds(handoverPredictions[i][0]) > Simulator::Now())
+            {
                 // for (int edgeId = 0; edgeId < numEdgeNodes; ++edgeId) {
-                while ((uint32_t)edgeId < serverNodes.GetN()) {
+                while ((uint32_t)edgeId < serverNodes.GetN())
+                {
                     double score = 0;
-                    
+
                     // server characteristics
-                    double serverLatency = 0;
-                    double serverCost = 0;
-                    double serverResources = 0;
+                    double latency_score = 0;
+                    double cost_score = 0;
+                    double resource_score = 0;
+                    // if I cared a bit more I'd use the limits.h
+                    //  library to set this to the max, but I don't
+                    int server_latency = 999999;
 
                     // get server metrics
-                    if (edgeId < numMistNodes) {
-                        serverLatency += (1 / serverReqs[0][0]) * weights[0];
-                        serverResources += serverReqs[0][1] * weights[1];
-                        serverCost += (1 / serverReqs[0][1]) * weights[2];
+                    if (edgeId < numMistNodes)
+                    {
+                        latency_score += (1 / serverReqs[0][0]) * weights[0];
+                        resource_score += serverReqs[0][1] * weights[1];
+                        cost_score += (1 / serverReqs[0][2]) * weights[2];
+                        server_latency = serverReqs[0][0];
                     }
-                    else if (edgeId < numMistNodes + numEdgeNodes) {
-                        serverLatency = (1 / serverReqs[1][0]) + weights[0];
-                        serverResources = (serverReqs[1][1]) + weights[1];
-                        serverCost = (1 / serverReqs[1][2]) + weights[2];
+                    else if (edgeId < numMistNodes + numEdgeNodes)
+                    {
+                        latency_score = (1 / serverReqs[1][0]) + weights[0];
+                        resource_score = (serverReqs[1][1]) + weights[1];
+                        cost_score = (1 / serverReqs[1][2]) + weights[2];
+                        server_latency = serverReqs[1][0];
                     }
-                    else if (edgeId < numMistNodes + numEdgeNodes + numFogNodes) {
-                        serverLatency = (1 / serverReqs[2][0]) * weights[0];
-                        serverResources = (serverReqs[2][1]) * weights[1];
-                        serverCost = (1 / serverReqs[2][2]) * weights[2];
+                    else if (edgeId < numMistNodes + numEdgeNodes + numFogNodes)
+                    {
+                        latency_score = (1 / serverReqs[2][0]) * weights[0];
+                        resource_score = (serverReqs[2][1]) * weights[1];
+                        cost_score = (1 / serverReqs[2][2]) * weights[2];
+                        server_latency = serverReqs[2][0];
                     }
-                    else {
-                        serverLatency = (1 / serverReqs[3][0]) * weights[0];
-                        serverResources = (serverReqs[3][1]) * weights[1];
-                        serverCost = (1 / serverReqs[3][2]) * weights[2];
+                    else
+                    {
+                        latency_score = (1 / serverReqs[3][0]) * weights[0];
+                        resource_score = (serverReqs[3][1]) * weights[1];
+                        cost_score = (1 / serverReqs[3][2]) * weights[2];
+                        server_latency = serverReqs[3][0];
                     }
 
-                    // calculate score
-                    if(serverLatency > applicationReqs[applicationType][0] ||
+                    // Get the last insertion to the latency container
+                    // and check if requirements are being met
+                    // or if server is out of resources
+                    if (server_latency > applicationReqs[applicationType][0] ||
                         resources[edgeId] == 0)
                         score = 0;
                     else
-                        score = serverLatency + serverCost + serverResources;
+                        score = latency_score + cost_score + resource_score;
 
                     // in the case of qos-based
                     if (algorithm == "qos")
                         score = 1 / serverReqs[1][0];
 
-                    LOG(Simulator::Now().GetSeconds() <<  " -- server " << edgeId << " score: " << score);
+                    LOG(Simulator::Now().GetSeconds() << " -- server " << edgeId << " score: " << score);
 
                     // get greated score
-                    if (score > greatestScore) {
+                    if (score > greatestScore)
+                    {
                         greatestScore = score;
                         bestEdgeServer = edgeId;
                     }
                     edgeId++;
                 }
-                if (bestEdgeServer != serving_node) {
+                if (bestEdgeServer != serving_node)
+                {
                     if (edgeMigrationChart[i][bestEdgeServer] + 5 > Simulator::Now().GetSeconds())
                         ; // do nothing
                     // return;
-                    else {
+                    else
+                    {
                         migrate(serverNodes.Get(serving_node), serverNodes.Get(bestEdgeServer),
-                            serverNodesAddresses[serving_node][1], serverNodesAddresses[bestEdgeServer][1]);
+                                serverNodesAddresses[serving_node][1], serverNodesAddresses[bestEdgeServer][1]);
                         edgeMigrationChart[i][bestEdgeServer] = Simulator::Now().GetSeconds();
+                        edgeUe[serving_node][i] = 0;
+                        edgeUe[bestEdgeServer][i] = 1;
                     }
                 }
             }
 
             // renew applications periodically
             requestApplication(ueNodes.Get(i), serverNodes.Get(serving_node), serverNodesAddresses[serving_node][0]);
-            }
-        else {
+        }
+        else
+        {
             NS_LOG_UNCOND("Node " << i << " not being served?");
         }
     }
+    NS_LOG_UNCOND("Users served with the minimun reqs: " <<  served_with_reqs / ueNodes.GetN());
 }
 
 void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifier)
@@ -570,7 +657,8 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
     map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
 
     // iterate all flows
-    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator iter = stats.begin(); iter != stats.end(); ++iter) {
+    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator iter = stats.begin(); iter != stats.end(); ++iter)
+    {
 
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(iter->first);
 
@@ -588,7 +676,8 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         DropPacketsum += iter->second.packetsDropped.size();
         Delaysum += iter->second.delaySum.GetSeconds();
 
-        if (Delaysum == 0 || rxPacketsum == 0) {
+        if (Delaysum == 0 || rxPacketsum == 0)
+        {
             APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
             qosValues[edgeId] = APD;
         }
@@ -612,8 +701,10 @@ int getNodeId(Ptr<Node> node, string type = "server")
         tmpNodesContainer = enbNodes;
 
     // find th enode id
-    for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i) {
-        if (node == tmpNodesContainer.Get(i)) {
+    for (uint32_t i = 0; i < tmpNodesContainer.GetN(); ++i)
+    {
+        if (node == tmpNodesContainer.Get(i))
+        {
             // NS_LOG_UNCOND("node " << node << " is " << tmpNodesContainer.Get(i) << " ?");
             return i;
         }
@@ -625,28 +716,30 @@ int getNodeId(Ptr<Node> node, string type = "server")
 int getEdge(int nodeId)
 {
     int edgeId = -1;
-    for (int i = 0; i < numEdgeNodes + numFogNodes; ++i)
-        if (edgeUe[i][nodeId]) {
-
+    for (int i = 0; i < numServers; ++i)
+        if (edgeUe[i][nodeId])
+        {
             edgeId = i;
         }
     return edgeId;
 }
 
 void requestApplication(Ptr<Node> ueNode,
-    Ptr<Node> targetServer,
-    Ipv4Address targetServerAddress)
+                        Ptr<Node> targetServer,
+                        Ipv4Address targetServerAddress)
 {
 
     // return if migration is not available
     // and if node is being served
-    if (!doMigrate || getEdge(getNodeId(ueNode, "ue")) < 0) {
+    if (!doMigrate || getEdge(getNodeId(ueNode, "ue")) < 0)
+    {
         std::cout << "Migration not enabled. :(\n";
         return;
     }
 
     // NS_LOG_UNCOND("Node " << getNodeId(ueNode, "ue") << " requesting application from node " << getNodeId(targetServer, "server"));
-    if (resources[getNodeId(targetServer)] <= 0) {
+    if (resources[getNodeId(targetServer)] <= 0)
+    {
         // NS_LOG_UNCOND("APPLICATION FAILED FOR LACK OF RESOURCES");
         return;
     }
@@ -677,18 +770,20 @@ void requestApplication(Ptr<Node> ueNode,
 }
 
 void migrate(Ptr<Node> sourceServer,
-    Ptr<Node> targetServer,
-    Ipv4Address sourceServerAddress,
-    Ipv4Address targetServerAddress)
+             Ptr<Node> targetServer,
+             Ipv4Address sourceServerAddress,
+             Ipv4Address targetServerAddress)
 {
 
     // return if migration is not available
-    if (!doMigrate) {
+    if (!doMigrate)
+    {
         std::cout << "Migration not enabled. :(\n";
-        return;
+        // return;
     }
 
-    if (resources[getNodeId(targetServer)] <= 0) {
+    if (resources[getNodeId(targetServer)] <= 0)
+    {
         NS_LOG_UNCOND("MIGRATION FAILED FOR LACK OF RESOURCES");
         return;
     }
@@ -699,6 +794,10 @@ void migrate(Ptr<Node> sourceServer,
 
     resources[getNodeId(sourceServer)]++;
     resources[getNodeId(targetServer)]--;
+
+    // stop before any traffic is actually sent
+    // do this to speed up the simulation
+    return;
 
     // cout << "Starting migration from node " << sourceServerAddress << " to node " << targetServerAddress << ".\n";
     ++migrationPort;
@@ -730,8 +829,10 @@ int getCellId(int nodeId)
     // start this variable at an arbitrary value
     int cell = -1;
     // for (int i = 0; i < numNodes; ++i) {
-    for (int j = 0; j < numEnbs; ++j) {
-        if (cellUe[j][nodeId] != 0) {
+    for (int j = 0; j < numEnbs; ++j)
+    {
+        if (cellUe[j][nodeId] != 0)
+        {
             cell = j;
         }
     }
@@ -740,7 +841,7 @@ int getCellId(int nodeId)
     return cell;
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     int randomSeed = 5;
 
@@ -759,7 +860,8 @@ int main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     // logs enabled
-    if (verbose) {
+    if (verbose)
+    {
         LogComponentEnable("UdpL4Protocol", LOG_LEVEL_ALL);
         LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
         // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_ALL);
@@ -785,26 +887,30 @@ int main(int argc, char* argv[])
     // fill all edge nodes with a different number of processing units
     resources.assign(numServers, 0);
 
-    for (int i = 0; i < numMistNodes; ++i) {
+    for (int i = 0; i < numMistNodes; ++i)
+    {
         resources[i] = serverReqs[0][1];
         totalNetResources += resources[i];
         std::cout << "Mist server " << i << " initialized with " << resources[i] << " resources" << endl;
     }
 
-    for (int i = 0; i < numEdgeNodes; ++i) {
+    for (int i = 0; i < numEdgeNodes; ++i)
+    {
 
         resources[numMistNodes + i] = rand() % 10 < 2 ? serverReqs[1][1] : 0;
         totalNetResources += resources[numMistNodes + i];
         std::cout << "Edge server " << i << " initialized with " << resources[numMistNodes + i] << " resources" << endl;
     }
 
-    for (int i = 0; i < numFogNodes; ++i) {
+    for (int i = 0; i < numFogNodes; ++i)
+    {
         resources[numMistNodes + numEdgeNodes + i] = serverReqs[2][1];
         totalNetResources += resources[numMistNodes + numEdgeNodes + i];
         std::cout << "Fog server " << i << " initialized with " << resources[numMistNodes + numEdgeNodes + i] << " resources" << endl;
     }
 
-    for (int i = 0; i < numCloudNodes; ++i) {
+    for (int i = 0; i < numCloudNodes; ++i)
+    {
         resources[numMistNodes + numEdgeNodes + numFogNodes + i] = serverReqs[3][1];
         totalNetResources += resources[numMistNodes + numEdgeNodes + numFogNodes + i];
         std::cout << "Cloud server " << i << " initialized with " << resources[numMistNodes + numEdgeNodes + numFogNodes + i] << " resources" << endl;
@@ -821,17 +927,18 @@ int main(int argc, char* argv[])
 
     Config::SetDefault("ns3::LteEnbNetDevice::DlBandwidth", UintegerValue(100));
     Config::SetDefault("ns3::LteEnbNetDevice::UlBandwidth", UintegerValue(100));
-    Config::SetDefault("ns3::LteEnbPhy::TxPower", DoubleValue(60));
+    Config::SetDefault("ns3::LteEnbPhy::TxPower", DoubleValue(43));
+    // I guess this covers the whole scenario
 
     // ctrl and data channel models
     Config::SetDefault("ns3::LteSpectrumPhy::CtrlErrorModelEnabled", BooleanValue(true));
 
     // transmission mode (SISO [0], MIMO [1])
     Config::SetDefault("ns3::LteEnbRrc::DefaultTransmissionMode",
-        UintegerValue(1));
+                       UintegerValue(1));
     // path loss model
     lteHelper->SetAttribute("PathlossModel",
-        StringValue("ns3::RangePropagationLossModel"));
+                            StringValue("ns3::RangePropagationLossModel"));
     // UL and DL frequencies
     lteHelper->SetEnbDeviceAttribute("DlEarfcn", UintegerValue(100));
     lteHelper->SetEnbDeviceAttribute("UlEarfcn", UintegerValue(18100));
@@ -851,11 +958,15 @@ int main(int argc, char* argv[])
     lteHelper->SetEnbAntennaModelAttribute("MaxGain", DoubleValue(0.0));
 
     // Handover configuration
-    lteHelper->SetHandoverAlgorithmType("ns3::A3RsrpHandoverAlgorithm");
-    lteHelper->SetHandoverAlgorithmAttribute("Hysteresis",
-        DoubleValue(0));
-    lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
-        TimeValue(MilliSeconds(30)));
+    lteHelper->SetHandoverAlgorithmType("ns3::A2A4RsrqHandoverAlgorithm");
+    // lteHelper->SetHandoverAlgorithmAttribute("Hysteresis",
+    //     DoubleValue(0));
+    // lteHelper->SetHandoverAlgorithmAttribute("TimeToTrigger",
+    //     TimeValue(MilliSeconds(0)));
+    lteHelper->SetHandoverAlgorithmAttribute("ServingCellThreshold",
+                                             UintegerValue(34));
+    lteHelper->SetHandoverAlgorithmAttribute("NeighbourCellOffset",
+                                             UintegerValue(0));
 
     Ptr<Node> pgw = epcHelper->GetPgwNode();
 
@@ -885,7 +996,8 @@ int main(int argc, char* argv[])
     ipv4h.SetBase("1.0.0.0", "255.0.0.0");
 
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
-    for (uint32_t i = 0; i < serverNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < serverNodes.GetN(); ++i)
+    {
         // create all edge nodes with different delays, some of them unfit fot the application
         Ptr<Node> node = serverNodes.Get(i);
 
@@ -956,7 +1068,8 @@ int main(int argc, char* argv[])
     csma.SetChannelAttribute("Delay", StringValue("0ms"));
     NetDeviceContainer backhaulCsma = csma.Install(serverNodes);
     Ipv4InterfaceContainer serversIpIfaces = edgeIpv4AddressHelper.Assign(backhaulCsma);
-    for (uint32_t i = 0; i < serversIpIfaces.GetN(); ++i) {
+    for (uint32_t i = 0; i < serversIpIfaces.GetN(); ++i)
+    {
         serverNodesAddresses[i][1] = serversIpIfaces.GetAddress(i);
     }
 
@@ -965,7 +1078,8 @@ int main(int argc, char* argv[])
     Ipv4InterfaceContainer ueIpIface;
     ueIpIface = epcHelper->AssignUeIpv4Address(NetDeviceContainer(ueLteDevs));
     // Assign IP address to UEs, and install applications
-    for (uint32_t u = 0; u < ueNodes.GetN(); ++u) {
+    for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+    {
         Ptr<Node> ueNode = ueNodes.Get(u);
         // Set the default gateway for the UE
         Ptr<Ipv4StaticRouting> ueStaticRouting = ipv4RoutingHelper.GetStaticRouting(ueNode->GetObject<Ipv4>());
@@ -985,31 +1099,33 @@ int main(int argc, char* argv[])
 
     // --------------------EVENTS-----------------------------------------
 
-
     // netanim setup
     AnimationInterface anim("migration-animation.xml"); // Mandatory
 
     // optional
-    for (uint32_t i = 0; i < enbNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
+    {
         anim.UpdateNodeDescription(enbNodes.Get(i), "eNb");
         anim.UpdateNodeColor(enbNodes.Get(i), 0, 255, 0);
     }
-    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+    {
         anim.UpdateNodeDescription(ueNodes.Get(i), "UE");
         anim.UpdateNodeColor(ueNodes.Get(i), 255, 0, 0);
     }
-    for (uint32_t i = 0; i < serverNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < serverNodes.GetN(); ++i)
+    {
         anim.UpdateNodeDescription(serverNodes.Get(i), "server");
         anim.UpdateNodeColor(serverNodes.Get(i), 0, 255, 100);
     }
 
     // callbacks from handover events
     Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/ConnectionEstablished",
-        MakeCallback(&NotifyConnectionEstablishedUe));
+                    MakeCallback(&NotifyConnectionEstablishedUe));
     Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverStart",
-        MakeCallback(&NotifyHandoverStartUe));
+                    MakeCallback(&NotifyHandoverStartUe));
     Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverEndOk",
-        MakeCallback(&NotifyHandoverEndOkUe));
+                    MakeCallback(&NotifyHandoverEndOkUe));
 
     // intall flow monitor and get stats
     FlowMonitorHelper flowmon;
@@ -1025,7 +1141,8 @@ int main(int argc, char* argv[])
 
     monitor->CheckForLostPackets();
     FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
-    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
+    for (map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i)
+    {
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
         std::cout << "Flow " << i->first << " (" << t.sourceAddress << " ->" << t.destinationAddress << ")\n";
         std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
