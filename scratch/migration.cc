@@ -57,27 +57,25 @@ int getCellId(int nodeId);
 string algorithm = "mosca";
 
 // scenario variables
-uint16_t numPeds = 38;
-uint16_t numVeics = 38;
+uint16_t numPeds = 12;
 
-uint16_t numEnbs = 50;
+uint16_t numEnbs = 126;
 uint16_t numEdgeNodes = numEnbs;
 uint16_t numFogNodes = 10;
 uint16_t numMistNodes = 20;
 uint16_t numCloudNodes = 1;
 
 // mobility trace file
-string pedMobilityTrace = "mobil/pedestrian.ns_movements";
-string veicMobilityTrace = "mobil/LusT.tcl";
+string pedMobilityTrace = "mobil/orange_trace.tcl";
 
 // simulation variables
-Time simTime = Seconds(50);
+Time simTime = Seconds(20);
 
 // enable logs
 bool verbose = false;
 
 // perform migrations
-bool doMigrate = true;
+bool doMigrate = false;
 
 // server characteristics
 // the first index is the metric: lat, bw, and cost
@@ -113,7 +111,6 @@ std::vector<int> cost;
 // ----------VARIABLES YOU DONT TOUCH-----------------
 // containers
 NodeContainer pedNodes;
-NodeContainer veicNodes;
 NodeContainer ueNodes;
 
 NodeContainer enbNodes;
@@ -128,7 +125,7 @@ NodeContainer serverNodes;
 ApplicationContainer apps;
 
 // control variables
-int numNodes = numPeds + numVeics;
+int numNodes = numPeds;
 
 uint16_t numServers = numMistNodes + numEdgeNodes + numFogNodes + numCloudNodes;
 // total amount of resources in the network
@@ -191,8 +188,7 @@ void save_to_csv(std::vector<int> metrics, std::string filename)
 
 void HandoverPrediction(int nodeId, int timeWindow)
 {
-    std::string mobilityTrace;
-    mobilityTrace = nodeId < numPeds ? pedMobilityTrace : veicMobilityTrace;
+    std::string mobilityTrace = "mobil/pred_orange_trace.tcl";
 
     // means no connection has been found
     // happens if it's called too early in the simulation
@@ -201,6 +197,7 @@ void HandoverPrediction(int nodeId, int timeWindow)
 
     // receive a nodeId, and a time window, and return if a handover is going to happen in this time window.
     std::ifstream mobilityFile(mobilityTrace);
+    NS_ASSERT_MSG(mobilityFile.is_open(), "Error opening prediction file.");
 
     string nodeColumn;
     string fileLines;
@@ -391,88 +388,55 @@ Ptr<ListPositionAllocator> positionAllocator(Ptr<ListPositionAllocator> HpnPosit
 {
 
     std::cout << "allocationg cells positions\n";
-    int x, y;
-    int distance = 100;
-    int smallCellRadius = 20;
-    ofstream outfile("v2x_temp/cellsList", ios::out | ios::trunc);
+    double x, y;
+    ifstream cells_file("cellslist");
 
-    if (randomCellAlloc)
+    while (cells_file >> x >> y)
     {
-        std::cout << "random alloc\n";
-        for (int i = 0; i < numEnbs; ++i)
-        {
-            x = rand() % 2000;
-            y = rand() % 2000;
-            HpnPosition->Add(Vector(x, y, 15));
-            outfile << i + 1 << " " << x << " " << y << endl;
-        }
-        outfile.close();
-        return HpnPosition;
+        HpnPosition->Add(Vector3D(x, y, 30));
     }
-    else if (rowTopology)
-    {
-        std::cout << "row alloc\n";
-        int x_start = 700;
-        int y_start = 500;
-        for (int i = 0; i < numEnbs; ++i)
-            HpnPosition->Add(Vector(x_start + distance * i, y_start, 25));
-        return HpnPosition;
-    }
-    else
-    {
-        std::cout << "hex alloc\n";
-        int x_start = 100;
-        int y_start = 100;
 
-        // add a cell in the center of the scenario
-        HpnPosition->Add(Vector(x_start, y_start, 25));
-
-        for (double i = 0; i < 2 * PI; i += PI / 3)
-        {
-            HpnPosition->Add(Vector(x_start + distance * cos(i), y_start + distance * sin(i), 25));
-        }
-
-        for (double i = 0; i < 2 * PI; i += PI / 3)
-        {
-            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 + 10, y_start + smallCellRadius * sin(i) - rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 - 10, y_start + smallCellRadius * sin(i) + rand() % 100 + 10, 10));
-            HpnPosition->Add(Vector(x_start + smallCellRadius * cos(i) + rand() % 100 - 10, y_start + smallCellRadius * sin(i) - rand() % 100 + 10, 10));
-        }
-        return HpnPosition;
-    }
+    return HpnPosition;
 }
 
 // function that receives the user node container and checks if requirements are being met
-double check_served(NodeContainer ueNodes) {
+double check_served(NodeContainer ueNodes)
+{
     int counter_served = 0;
 
-    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
-        for (uint32_t u = 0; u < numEnbs; ++u) {
-            if (cellUe[u][i]) {
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+    {
+        for (uint32_t u = 0; u < numEnbs; ++u)
+        {
+            if (cellUe[u][i])
+            {
                 counter_served++;
                 continue;
             }
         }
     }
 
-    return (double) counter_served / ueNodes.GetN();
+    return (double)counter_served / ueNodes.GetN();
 }
 
 // function that receives the user node container and returns the percentage covered
-double check_coverage(NodeContainer ueNodes) {
+double check_coverage(NodeContainer ueNodes)
+{
     int counter_covered = 0;
 
-    for (uint32_t i = 0; i < ueNodes.GetN(); ++i) {
-        for (uint32_t u = 0; u < serverNodes.GetN(); ++u) {
-            if (edgeUe[u][i]) {
+    for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+    {
+        for (uint32_t u = 0; u < serverNodes.GetN(); ++u)
+        {
+            if (edgeUe[u][i])
+            {
                 counter_covered++;
                 continue;
             }
         }
     }
 
-    return (double) counter_covered / ueNodes.GetN();
+    return (double)counter_covered / ueNodes.GetN();
 }
 
 // migrations manager
@@ -486,7 +450,7 @@ void manager()
 
     // a counter to see the percentage of users who
     //  are served with the minimum application requirements
-    int served_with_reqs = 0;
+    float served_with_reqs = 0;
     NS_LOG_UNCOND("Percentage of users covered: " << check_coverage(ueNodes));
     NS_LOG_UNCOND("Percentage of users served: " << check_served(ueNodes));
 
@@ -531,7 +495,8 @@ void manager()
                 cost.push_back(serverReqs[3][1]);
             }
 
-            if (latency.back() < applicationReqs[applicationType][0]) {
+            if (latency.back() < applicationReqs[applicationType][0])
+            {
                 served_with_reqs++;
             }
 
@@ -638,7 +603,7 @@ void manager()
             NS_LOG_UNCOND("Node " << i << " not being served?");
         }
     }
-    NS_LOG_UNCOND("Users served with the minimun reqs: " <<  served_with_reqs / ueNodes.GetN());
+    // NS_LOG_UNCOND("Users served with the minimun reqs: " << served_with_reqs / ueNodes.GetN());
 }
 
 void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifier)
@@ -676,14 +641,15 @@ void getDelayFlowMon(Ptr<FlowMonitor> monitor, Ptr<Ipv4FlowClassifier> classifie
         DropPacketsum += iter->second.packetsDropped.size();
         Delaysum += iter->second.delaySum.GetSeconds();
 
-        if (Delaysum == 0 || rxPacketsum == 0)
-        {
-            APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
-            qosValues[edgeId] = APD;
-        }
+        // if (Delaysum == 0 || rxPacketsum == 0)
+        // {
+        APD = (Delaysum / rxPacketsum); // APD = (Delaysum / txPacketsum); //to check
+        qosValues[edgeId] = APD;
+        // }
 
         std::cout << "Flow ID: " << iter->first << " Src Addr " << t.sourceAddress << " Dst Addr " << t.destinationAddress << "\n";
         std::cout << "Average Packet Delay: " << APD << "\n";
+        wait;
     }
     Simulator::Schedule(managerInterval, &getDelayFlowMon, monitor, classifier);
 }
@@ -974,9 +940,7 @@ int main(int argc, char *argv[])
     InternetStackHelper internet;
 
     pedNodes.Create(numPeds);
-    veicNodes.Create(numVeics);
     ueNodes.Add(pedNodes);
-    ueNodes.Add(veicNodes);
 
     enbNodes.Create(numEnbs);
     mistNodes.Create(numMistNodes);
@@ -1047,9 +1011,6 @@ int main(int argc, char *argv[])
 
     Ns2MobilityHelper ped_mobil = Ns2MobilityHelper(pedMobilityTrace);
     ped_mobil.Install(pedNodes.Begin(), pedNodes.End());
-
-    Ns2MobilityHelper veic_mobil = Ns2MobilityHelper(veicMobilityTrace);
-    veic_mobil.Install(veicNodes.Begin(), veicNodes.End());
 
     // Install LTE Devices to the nodes
     NetDeviceContainer enbLteDevs = lteHelper->InstallEnbDevice(enbNodes);
